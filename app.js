@@ -55,6 +55,10 @@ var crashingNum = function(callback) {
 	return crashing(callback, function(reply) { return Number(reply); });
 };
 
+var crashingList = function(callback) {
+	return crashing(callback, function(reply) { return reply == null ? [] : reply; }, true);
+};
+
 var client = redis.createClient();
 client.on('error', function (err) {
 	console.log(new Error(err).stack);
@@ -83,19 +87,31 @@ var newState = function(uid) {
 		}));
 	};
 
+	s.clearScanResults = function(callback) {
+		var scanResultsKey = key + ':scanResults';
+		var cb = crashingNum(callback);
+		client.lrange(scanResultsKey, 0, -1, crashingList(function(err, ips) {
+			if (ips.length > 0) {
+				client.del([scanResultsKey].concat(ips.map(function(ip) { return scanResultsKey + ':' + ip; })), cb);
+			} else {
+				cb(null, 0);
+			}
+		}));
+	};
+
 	s.storeScanResults = function(results, callback) {
 		var scanResultsKey = key + ':scanResults';
-		var multi = client.multi()
-			.del(scanResultsKey)
-			.rpush(scanResultsKey, results.map(function(r) { return r.ip; } ));
-		var i;
-		for (i = 0; i < results.length; i++) {
-			var r = results[i];
-			multi.hmset(scanResultsKey + ':' + r.ip,
-				'firewallLevel', r.firewallLevel,
-				'passwordLevel', r.passwordLevel);
-		}
-		multi.exec(crashing(callback, function() { return results; }));
+		s.clearScanResults(function(err, num) {
+			var multi = client.multi();
+			results.forEach(function(r) {
+				multi
+					.rpush(scanResultsKey, r.ip)
+					.hmset(scanResultsKey + ':' + r.ip,
+						'firewallLevel', r.firewallLevel,
+						'passwordLevel', r.passwordLevel);
+			});
+			multi.exec(crashing(callback, function() { return results; }));
+		});
 	};
 
 	s.on = function(event, listener) {
