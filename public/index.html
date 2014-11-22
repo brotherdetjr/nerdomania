@@ -21,6 +21,22 @@
 				<h3 class="panel-title">Babosiki: ${{account}}</h3>
 			</div>
 			<div class="panel-body">
+				<table class="table table-striped">
+					<thead>
+						<tr>
+							<th>IP</th>
+							<th>Firewall Level</th>
+							<th>Password Level</th>
+						</tr>
+					</thead>
+					<tbody>
+						<tr ng-repeat="scanResult in scanResults">
+							<td>{{scanResult.ip}}</td>
+							<td>{{scanResult.firewallLevel}}</td>
+							<td>{{scanResult.passwordLevel}}</td>
+						</tr>
+					</tbody>
+				</table>
 				<button type="button" class="btn btn-default" ng-click="scanButtonClick()">Scan&nbsp;<span class="glyphicon glyphicon-search" aria-hidden="true"></span></button>
 				<button type="button" class="btn btn-default" ng-click="itJobButtonClick()">IT Job&nbsp;<span class="glyphicon glyphicon-time" aria-hidden="true"></span></button>
 			</div>

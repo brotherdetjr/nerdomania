@@ -11,6 +11,7 @@
 // TODO github
 // TODO descibe solution design
 // TODO see TODOs in the code...
+// TODO implement serialization of transactions via locking
 
 var EventEmitter = require('events').EventEmitter;
 var express = require('express');
@@ -23,12 +24,15 @@ var sessionstore = require('sessionstore');
 var sessStore = sessionstore.createSessionStore();
 var redis = require('redis');
 
+var httpPort = 80;
 var initialAccount = 500;
 var minIntervalBetweenItJobs = 1000;
 var maxItJobsPerRequest = 5;
 var itJobPrice = 10;
 var energyCost = 5;
 var energyBillInterval = 1000;
+var maxLevel = 80;
+var scanResultsCount = 5;
 
 var secret = 'very$ecret815XYZ';
 
@@ -79,6 +83,21 @@ var newState = function(uid) {
 		}));
 	};
 
+	s.storeScanResults = function(results, callback) {
+		var scanResultsKey = key + ':scanResults';
+		var multi = client.multi()
+			.del(scanResultsKey)
+			.rpush(scanResultsKey, results.map(function(r) { return r.ip; } ));
+		var i;
+		for (i = 0; i < results.length; i++) {
+			var r = results[i];
+			multi.hmset(scanResultsKey + ':' + r.ip,
+				'firewallLevel', r.firewallLevel,
+				'passwordLevel', r.passwordLevel);
+		}
+		multi.exec(crashing(callback, function() { return results; }));
+	};
+
 	s.on = function(event, listener) {
 		emitter.on(event, listener);
 	};
@@ -87,7 +106,6 @@ var newState = function(uid) {
 		emitter.removeListener(event, listener);
 	};
 
-	// TODO use Redis scripting to guarantee atomicity
 	s.payForItJob = function(amount) {
 		var timestamp = new Number(new Date());
 		s.getLastItJobTimestamp(function(err, reply) {
@@ -105,7 +123,6 @@ var newState = function(uid) {
 		});
 	};
 
-	// TODO use Redis scripting to guarantee atomicity
 	s.chargeForEnergy = function() {
 		s.getAccount(function(err, account) {
 			var toDebit = Math.min(account, energyCost);
@@ -129,6 +146,34 @@ var newState = function(uid) {
 	};
 
 	return s;
+};
+
+var randomIp = function() {
+	var getOctet = function() {
+		return Math.round(Math.random() * 255);
+	};
+	return getOctet() + '.' + getOctet() + '.' + getOctet() + '.' + getOctet();
+};
+
+var randomLevel = function() {
+	return Math.round(Math.random() * maxLevel);
+};
+
+var scanResult = function() {
+	return {
+			ip: randomIp(),
+			firewallLevel: randomLevel(),
+			passwordLevel: randomLevel()
+	};
+};
+
+var scanResults = function() {
+	var results = [];
+	var i;
+	for (i = 0; i < scanResultsCount; i++) {
+		results.push(scanResult());
+	}
+	return results;
 };
 
 sessStore.on('connect', function() {
@@ -160,6 +205,11 @@ sessStore.on('connect', function() {
 			var s = states[uid];
 			if (s != null) {
 				socket.on('itJobs', s.payForItJob);
+				socket.on('scan', function() {
+					s.storeScanResults(scanResults(), function(err, results) {
+						socket.emit('scanResults', results);
+					});
+				});
 				var accountListener = function(value) {
 					socket.emit('account', value);
 				};
@@ -172,7 +222,7 @@ sessStore.on('connect', function() {
 		});
 	});
 
-	http.listen(80, function() {
-		console.log('listening on *:80');
+	http.listen(httpPort, function() {
+		console.log('listening on *:%d', httpPort);
 	});
 });

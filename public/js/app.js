@@ -8,9 +8,10 @@ mainModule.controller('MainCtrl', ['$scope', '$interval', function($scope, $inte
 	$scope.value = 'sisechki';
 	$scope.itJobClicks = 0;
 	$scope.account = 0;
+	$scope.scanResults = [];
 
 	$scope.scanButtonClick = function() {
-		alert('jopu sebe proskaniruy!');
+		socket.emit('scan');
 	};
 
 	$scope.itJobButtonClick = function() {
@@ -30,12 +31,11 @@ mainModule.controller('MainCtrl', ['$scope', '$interval', function($scope, $inte
 	}, 1000);
 
 	socket.on('account', function(value) {
-if (value == null) {
-	alert('VALUE: ' + value);
-}
 		if (value > $scope.account || $scope.itJobClicks == 0) {
 			$scope.account = value;
 		}
 	});
+
+	socket.on('scanResults', function(value) { $scope.scanResults = value; });
 }]);
 
