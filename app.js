@@ -73,11 +73,11 @@ var newState = function(uid) {
 
 	var s = {};
 
-	s.getAccount = function(callback) {
+	var getAccount = function(callback) {
 		client.hget(key, 'account', crashingNum(callback));
 	};
 
-	s.getLastItJobTimestamp = function(callback) {
+	var getLastItJobTimestamp = function(callback) {
 		client.hget(key, 'lastItJobTimestamp', crashingNum(callback));
 	};
 
@@ -87,7 +87,7 @@ var newState = function(uid) {
 		}));
 	};
 
-	s.clearScanResults = function(callback) {
+	var clearScanResults = function(callback) {
 		var scanResultsKey = key + ':scanResults';
 		var cb = crashingNum(callback);
 		client.lrange(scanResultsKey, 0, -1, crashingList(function(err, ips) {
@@ -101,7 +101,7 @@ var newState = function(uid) {
 
 	s.storeScanResults = function(results, callback) {
 		var scanResultsKey = key + ':scanResults';
-		s.clearScanResults(function(err, num) {
+		clearScanResults(function(err, num) {
 			var multi = client.multi();
 			results.forEach(function(r) {
 				multi
@@ -124,7 +124,7 @@ var newState = function(uid) {
 
 	s.payForItJob = function(amount) {
 		var timestamp = new Number(new Date());
-		s.getLastItJobTimestamp(function(err, reply) {
+		getLastItJobTimestamp(function(err, reply) {
 			if (timestamp - reply >= minIntervalBetweenItJobs) {
 				if (amount > maxItJobsPerRequest) {
 					amount = maxItJobsPerRequest;
@@ -139,8 +139,8 @@ var newState = function(uid) {
 		});
 	};
 
-	s.chargeForEnergy = function() {
-		s.getAccount(function(err, account) {
+	var chargeForEnergy = function() {
+		getAccount(function(err, account) {
 			var toDebit = Math.min(account, energyCost);
 			if (toDebit > 0) {
 				s.debit(toDebit);
@@ -148,15 +148,15 @@ var newState = function(uid) {
 		});
 	};
 
-	s.activate = function() {
-		setInterval(s.chargeForEnergy, energyBillInterval);
+	var activate = function() {
+		setInterval(chargeForEnergy, energyBillInterval);
 	};
 
 	s.init = function() {
 		client.hmset(key,
 			'account', initialAccount,
 			'lastItJobTimestamp', 0,
-			crashing(s.activate)
+			crashing(activate)
 		);
 		return s;
 	};
