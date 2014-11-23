@@ -33,6 +33,8 @@ var energyCost = 5;
 var energyBillInterval = 1000;
 var maxLevel = 80;
 var scanResultsCount = 5;
+var scanTickInterval = 600;
+var scanTickIncrement = 10;
 
 var secret = 'very$ecret815XYZ';
 
@@ -99,7 +101,7 @@ var newState = function(uid) {
 		}));
 	};
 
-	s.storeScanResults = function(results, callback) {
+	var storeScanResults = function(results, callback) {
 		var scanResultsKey = key + ':scanResults';
 		clearScanResults(function(err, num) {
 			var multi = client.multi();
@@ -139,6 +141,30 @@ var newState = function(uid) {
 		});
 	};
 
+	var scanTick = function(ivlId) {
+		client.hincrby(key, 'scanProgress', scanTickIncrement,
+			crashingNum(function(err, value) {
+				if (value >= 100) {
+					clearInterval(ivlId);
+					storeScanResults(scanResults(), function(err, results) {
+						client.hmset(key, 'scanning', false, 'scanProgress', 0);
+						emitter.emit('scanResults', results);
+					});
+				} else {
+					emitter.emit('scanProgress', value);
+				}
+			}
+		));
+	};
+
+	// TODO antiDoS (start only if scanning == false)
+	s.startScanning = function() {
+		client.hset(key, 'scanning', true, crashing(function() {
+			var ivlId = setInterval(function() { scanTick(ivlId); }, scanTickInterval);
+			emitter.emit('scanProgress', 0);
+		}));
+	};
+
 	var chargeForEnergy = function() {
 		getAccount(function(err, account) {
 			var toDebit = Math.min(account, energyCost);
@@ -156,6 +182,8 @@ var newState = function(uid) {
 		client.hmset(key,
 			'account', initialAccount,
 			'lastItJobTimestamp', 0,
+			'scanning', false,
+			'scanProgress', 0,
 			crashing(activate)
 		);
 		return s;
@@ -221,10 +249,12 @@ sessStore.on('connect', function() {
 			var s = states[uid];
 			if (s != null) {
 				socket.on('itJobs', s.payForItJob);
-				socket.on('scan', function() {
-					s.storeScanResults(scanResults(), function(err, results) {
-						socket.emit('scanResults', results);
-					});
+				socket.on('scan', s.startScanning);
+				s.on('scanResults', function(results) {
+					socket.emit('scanResults', results);
+				});
+				s.on('scanProgress', function(value) {
+					socket.emit('scanProgress', value);
 				});
 				var accountListener = function(value) {
 					socket.emit('account', value);

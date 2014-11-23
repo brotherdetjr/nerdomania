@@ -37,6 +37,11 @@
 						</tr>
 					</tbody>
 				</table>
+				<div class="progress" ng-show="scanning">
+					<div class="progress-bar progress-bar-striped active" role="progressbar" aria-valuenow="{{scanProgress}}" aria-valuemin="0" aria-valuemax="100" style="width: {{scanProgress}}%">
+						<span class="sr-only">{{scanProgress}}% Complete</span>
+					</div>
+				</div>
 				<button type="button" class="btn btn-default" ng-click="scanButtonClick()">Scan&nbsp;<span class="glyphicon glyphicon-search" aria-hidden="true"></span></button>
 				<button type="button" class="btn btn-default" ng-click="itJobButtonClick()">IT Job&nbsp;<span class="glyphicon glyphicon-time" aria-hidden="true"></span></button>
 			</div>

@@ -9,6 +9,8 @@ mainModule.controller('MainCtrl', ['$scope', '$interval', function($scope, $inte
 	$scope.itJobClicks = 0;
 	$scope.account = 0;
 	$scope.scanResults = [];
+	$scope.scanning = false;
+	$scope.scanProgress = 0;
 
 	$scope.scanButtonClick = function() {
 		socket.emit('scan');
@@ -36,6 +38,14 @@ mainModule.controller('MainCtrl', ['$scope', '$interval', function($scope, $inte
 		}
 	});
 
-	socket.on('scanResults', function(value) { $scope.scanResults = value; });
+	socket.on('scanProgress', function(value) {
+		$scope.scanning = true;
+		$scope.scanProgress = value;
+	});
+
+	socket.on('scanResults', function(value) {
+		$scope.scanning = false;
+		$scope.scanResults = value;
+	});
 }]);
 
