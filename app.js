@@ -57,6 +57,10 @@ var crashingNum = function(callback) {
 	return crashing(callback, function(reply) { return Number(reply); });
 };
 
+var crashingBool = function(callback) {
+	return crashing(callback, function(reply) { return reply == 'true'; });
+};
+
 var crashingList = function(callback) {
 	return crashing(callback, function(reply) { return reply == null ? [] : reply; }, true);
 };
@@ -157,11 +161,14 @@ var newState = function(uid) {
 		));
 	};
 
-	// TODO antiDoS (start only if scanning == false)
 	s.startScanning = function() {
-		client.hset(key, 'scanning', true, crashing(function() {
-			var ivlId = setInterval(function() { scanTick(ivlId); }, scanTickInterval);
-			emitter.emit('scanProgress', 0);
+		client.hget(key, 'scanning', crashingBool(function(err, value) {
+			if (!value) {
+				client.hset(key, 'scanning', true, crashing(function() {
+					var ivlId = setInterval(function() { scanTick(ivlId); }, scanTickInterval);
+					emitter.emit('scanProgress', 0);
+				}));
+			}
 		}));
 	};
 
