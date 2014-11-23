@@ -12,6 +12,7 @@
 // TODO descibe solution design
 // TODO see TODOs in the code...
 // TODO implement serialization of transactions via locking
+// TODO to fix: scanned ips disappear after page reload
 
 var EventEmitter = require('events').EventEmitter;
 var express = require('express');
