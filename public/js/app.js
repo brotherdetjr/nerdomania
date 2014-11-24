@@ -38,13 +38,13 @@ mainModule.controller('MainCtrl', ['$scope', '$interval', function($scope, $inte
 		}
 	});
 
-	socket.on('scanProgress', function(value) {
-		$scope.scanning = true;
-		$scope.scanProgress = value;
+	socket.on('scan', function(value) {
+		$scope.scanning = value.eta != 0;
+		$scope.scanProgress = value.progress;
 	});
 
 	socket.on('scanResults', function(value) {
-		$scope.scanning = false;
+		setTimeout(function() { $scope.scanning = false; }, 1000);
 		$scope.scanResults = value;
 	});
 }]);

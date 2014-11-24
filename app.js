@@ -34,10 +34,27 @@ var energyCost = 5;
 var energyBillInterval = 1000;
 var maxLevel = 80;
 var scanResultsCount = 5;
-var scanTickInterval = 600;
-var scanTickIncrement = 10;
+var fullScanTime = 5000;
 
 var secret = 'very$ecret815XYZ';
+
+
+var timeouts = {};
+var timeoutsCounter = 1;
+
+var schedule = function(callback, delay) {
+	var current = timeoutsCounter++;
+	timeouts[current] = setTimeout(function() {
+		timeouts[current] = null;
+		callback();
+	}, delay);
+	return current;
+};
+
+var unschedule = function(id) {
+	clearTimeout(timeouts[id]);
+	delete timeouts[id];
+};
 
 var crashing = function(callback, converter, nullable) {
 	if (callback == null) {
@@ -146,28 +163,56 @@ var newState = function(uid) {
 		});
 	};
 
-	var scanTick = function(ivlId) {
-		client.hincrby(key, 'scanProgress', scanTickIncrement,
-			crashingNum(function(err, value) {
-				if (value >= 100) {
-					clearInterval(ivlId);
-					storeScanResults(scanResults(), function(err, results) {
-						client.hmset(key, 'scanning', false, 'scanProgress', 0);
-						emitter.emit('scanResults', results);
-					});
-				} else {
-					emitter.emit('scanProgress', value);
-				}
+	s.startScanning = function() {
+		client.hget(key, 'scan:id', crashingNum(function(err, scanId) {
+			if (!scanId) {
+				client.hget(key, 'scan:checkpoint:progress', crashingNum(function(err, checkpointProgress) {
+					if (checkpointProgress >= 100) {
+						checkpointProgress = 0;
+					}
+					var eta = Math.round((100 - checkpointProgress) / 100 * fullScanTime);
+					var scanId = schedule(s.stopScanning, eta / 2);
+console.log('here: %j', scanId);
+console.log('scan started');
+console.log('progress: %d', checkpointProgress);
+console.log('eta: %d', eta);
+					client.hmset(key,
+						'scan:id', scanId,
+						'scan:eta', eta,
+						'scan:checkpoint:timestamp', new Number(new Date()),
+						'scan:checkpoint:progress', checkpointProgress
+					);
+					emitter.emit('scan', {progress: checkpointProgress, eta: eta});
+				}));
 			}
-		));
+		}));
 	};
 
-	s.startScanning = function() {
-		client.hget(key, 'scanning', crashingBool(function(err, value) {
-			if (!value) {
-				client.hset(key, 'scanning', true, crashing(function() {
-					var ivlId = setInterval(function() { scanTick(ivlId); }, scanTickInterval);
-					emitter.emit('scanProgress', 0);
+	s.stopScanning = function() {
+		client.hget(key, 'scan:id', crashingNum(function(err, scanId) {
+console.log('here: %j', scanId);
+			if (scanId) {
+				unschedule(scanId);
+				client.hmget(key, 'scan:checkpoint:progress', 'scan:checkpoint:timestamp', crashing(function(err, results) {
+					var checkpointProgress = results[0];
+					var checkpointTimestamp = results[1];
+					var now = new Number(new Date());
+					var progress = Math.round((now - checkpointTimestamp) / fullScanTime * 100 + checkpointProgress);
+					if (progress >= 100) {
+						storeScanResults(scanResults(), function(err, results) {
+							emitter.emit('scanResults', results);
+						});
+						progress = 100;
+					}
+console.log('scan stopped');
+console.log('progress: %d', progress);
+					client.hmset(key,
+						'scan:id', 0,
+						'scan:eta', 0,
+						'scan:checkpoint:timestamp', now,
+						'scan:checkpoint:progress', progress
+					);
+					emitter.emit('scan', {progress: progress});
 				}));
 			}
 		}));
@@ -190,8 +235,10 @@ var newState = function(uid) {
 		client.hmset(key,
 			'account', initialAccount,
 			'lastItJobTimestamp', 0,
-			'scanning', false,
-			'scanProgress', 0,
+			'scan:id', 0,
+			'scan:eta', 0,
+			'scan:checkpoint:timestamp', 0,
+			'scan:checkpoint:progress', 0,
 			crashing(activate)
 		);
 		return s;
