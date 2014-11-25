@@ -11,6 +11,7 @@ mainModule.controller('MainCtrl', ['$scope', '$interval', function($scope, $inte
 	$scope.scanResults = [];
 	$scope.scanning = false;
 	$scope.scanProgress = 0;
+	$scope.eta = 0;
 
 	$scope.scanButtonClick = function() {
 		socket.emit('scan');
@@ -41,11 +42,18 @@ mainModule.controller('MainCtrl', ['$scope', '$interval', function($scope, $inte
 	socket.on('scan', function(value) {
 		$scope.scanning = value.eta != 0;
 		$scope.scanProgress = value.progress;
+		$scope.eta = 0;
+		$scope.$apply();
+		if (value.eta != null) {
+			$scope.eta = value.eta;
+		}
+		$scope.scanProgress = 100;
 	});
 
 	socket.on('scanResults', function(value) {
-		setTimeout(function() { $scope.scanning = false; }, 1000);
+		$scope.scanning = false;
 		$scope.scanResults = value;
+		$scope.eta = 0;
 	});
 }]);
 

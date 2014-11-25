@@ -147,7 +147,7 @@ var newState = function(uid) {
 	};
 
 	s.payForItJob = function(amount) {
-		var timestamp = new Number(new Date());
+		var timestamp = Date.now();
 		getLastItJobTimestamp(function(err, reply) {
 			if (timestamp - reply >= minIntervalBetweenItJobs) {
 				if (amount > maxItJobsPerRequest) {
@@ -171,15 +171,11 @@ var newState = function(uid) {
 						checkpointProgress = 0;
 					}
 					var eta = Math.round((100 - checkpointProgress) / 100 * fullScanTime);
-					var scanId = schedule(s.stopScanning, eta / 2);
-console.log('here: %j', scanId);
-console.log('scan started');
-console.log('progress: %d', checkpointProgress);
-console.log('eta: %d', eta);
+					var scanId = schedule(s.stopScanning, eta);
 					client.hmset(key,
 						'scan:id', scanId,
 						'scan:eta', eta,
-						'scan:checkpoint:timestamp', new Number(new Date()),
+						'scan:checkpoint:timestamp', Date.now(),
 						'scan:checkpoint:progress', checkpointProgress
 					);
 					emitter.emit('scan', {progress: checkpointProgress, eta: eta});
@@ -190,13 +186,12 @@ console.log('eta: %d', eta);
 
 	s.stopScanning = function() {
 		client.hget(key, 'scan:id', crashingNum(function(err, scanId) {
-console.log('here: %j', scanId);
 			if (scanId) {
 				unschedule(scanId);
 				client.hmget(key, 'scan:checkpoint:progress', 'scan:checkpoint:timestamp', crashing(function(err, results) {
 					var checkpointProgress = results[0];
 					var checkpointTimestamp = results[1];
-					var now = new Number(new Date());
+					var now = Date.now();
 					var progress = Math.round((now - checkpointTimestamp) / fullScanTime * 100 + checkpointProgress);
 					if (progress >= 100) {
 						storeScanResults(scanResults(), function(err, results) {
@@ -204,8 +199,6 @@ console.log('here: %j', scanId);
 						});
 						progress = 100;
 					}
-console.log('scan stopped');
-console.log('progress: %d', progress);
 					client.hmset(key,
 						'scan:id', 0,
 						'scan:eta', 0,
@@ -303,21 +296,29 @@ sessStore.on('connect', function() {
 			var uid = socket.handshake.signedCookies['connect.sid'];
 			var s = states[uid];
 			if (s != null) {
-				socket.on('itJobs', s.payForItJob);
-				socket.on('scan', s.startScanning);
-				s.on('scanResults', function(results) {
+				var scanResultsListener = function(results) {
 					socket.emit('scanResults', results);
-				});
-				s.on('scanProgress', function(value) {
-					socket.emit('scanProgress', value);
-				});
+				};
+				s.on('scanResults', scanResultsListener);
+
+				var scanListener = function(value) {
+					socket.emit('scan', value);
+				};
+				s.on('scan', scanListener);
+
 				var accountListener = function(value) {
 					socket.emit('account', value);
 				};
 				s.on('account', accountListener);
+
+				socket.on('itJobs', s.payForItJob);
+				socket.on('scan', s.startScanning);
 				socket.on('disconnect', function() {
 					s.removeListener('account', accountListener);
+					s.removeListener('scanResults', scanResultsListener);
+					s.removeListener('scan', scanListener);
 				});
+
 				s.debit(0);
 			}
 		});
