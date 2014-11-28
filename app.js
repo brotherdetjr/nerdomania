@@ -138,6 +138,10 @@ var newState = function(uid) {
 		});
 	};
 
+	s.generateScanResults = function(callback) {
+		storeScanResults(scanResults(), crashing(callback));
+	};
+
 	s.on = function(event, listener) {
 		emitter.on(event, listener);
 	};
@@ -192,11 +196,8 @@ var newState = function(uid) {
 					var checkpointProgress = results[0];
 					var checkpointTimestamp = results[1];
 					var now = Date.now();
-					var progress = Math.round((now - checkpointTimestamp) / fullScanTime * 100 + checkpointProgress);
+					var progress = (now - checkpointTimestamp) / fullScanTime * 100 + checkpointProgress;
 					if (progress >= 100) {
-						storeScanResults(scanResults(), function(err, results) {
-							emitter.emit('scanResults', results);
-						});
 						progress = 100;
 					}
 					client.hmset(key,
@@ -296,13 +297,13 @@ sessStore.on('connect', function() {
 			var uid = socket.handshake.signedCookies['connect.sid'];
 			var s = states[uid];
 			if (s != null) {
-				var scanResultsListener = function(results) {
-					socket.emit('scanResults', results);
-				};
-				s.on('scanResults', scanResultsListener);
-
 				var scanListener = function(value) {
 					socket.emit('scan', value);
+					if (value.progress >= 100) {
+						s.generateScanResults(function(err, results) {
+							socket.emit('scanResults', results);
+						});
+					}
 				};
 				s.on('scan', scanListener);
 
@@ -315,7 +316,6 @@ sessStore.on('connect', function() {
 				socket.on('scan', s.startScanning);
 				socket.on('disconnect', function() {
 					s.removeListener('account', accountListener);
-					s.removeListener('scanResults', scanResultsListener);
 					s.removeListener('scan', scanListener);
 				});
 
