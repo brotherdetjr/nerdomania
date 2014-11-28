@@ -2,6 +2,7 @@ var mainModule = angular.module('main', []);
 
 
 mainModule.controller('MainCtrl', ['$scope', '$interval', function($scope, $interval) {
+	var fps = 20;
 	var socket = io();
 	var itJobPrice = 10; // TODO: retrieve from server
 
@@ -9,9 +10,8 @@ mainModule.controller('MainCtrl', ['$scope', '$interval', function($scope, $inte
 	$scope.itJobClicks = 0;
 	$scope.account = 0;
 	$scope.scanResults = [];
-	$scope.scanning = false;
 	$scope.scanProgress = 0;
-	$scope.eta = 0;
+	$scope.scanning = false;
 
 	$scope.scanButtonClick = function() {
 		socket.emit('scan');
@@ -40,20 +40,25 @@ mainModule.controller('MainCtrl', ['$scope', '$interval', function($scope, $inte
 	});
 
 	socket.on('scan', function(value) {
-		$scope.scanning = value.eta != 0;
 		$scope.scanProgress = value.progress;
-		$scope.eta = 0;
-		$scope.$apply();
 		if (value.eta != null) {
-			$scope.eta = value.eta;
+			$scope.scanning = true;
+			var delta = (100 - $scope.scanProgress) / fps / value.eta * 1000;
+			var promise = $interval(function() {
+				if ($scope.scanProgress >= 100) {
+					$scope.scanning = false;
+					$interval.cancel(promise);
+				} else {
+					$scope.scanProgress += delta;
+				}
+			}, 1000 / fps);
+		} else {
+			$scope.scanning = false;
 		}
-		$scope.scanProgress = 100;
 	});
 
 	socket.on('scanResults', function(value) {
-		$scope.scanning = false;
 		$scope.scanResults = value;
-		$scope.eta = 0;
 	});
 }]);
 

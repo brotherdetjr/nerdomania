@@ -20,3 +20,10 @@ body {
 footer .container-fluid > * {
 	margin: 20px 0;
 }
+
+.progress-bar {
+	-webkit-transition: none;
+	-o-transition: none;
+	-moz-transition: none;
+	transition: none;
+}
