@@ -26,7 +26,7 @@ var sessStore = sessionstore.createSessionStore();
 var redis = require('redis');
 
 var httpPort = 80;
-var initialAccount = 500;
+var initialAccount = 75;
 var minIntervalBetweenItJobs = 1000;
 var maxItJobsPerRequest = 5;
 var itJobPrice = 10;
@@ -35,6 +35,8 @@ var energyBillInterval = 1000;
 var maxLevel = 80;
 var scanResultsCount = 5;
 var fullScanTime = 5000;
+var energyUnitsPerSecond = 1;
+var costOfEnergyUnit = 10;
 
 var secret = 'very$ecret815XYZ';
 
@@ -97,16 +99,12 @@ var newState = function(uid) {
 
 	var s = {};
 
-	var getAccount = function(callback) {
-		client.hget(key, 'account', crashingNum(callback));
-	};
-
 	var getLastItJobTimestamp = function(callback) {
 		client.hget(key, 'lastItJobTimestamp', crashingNum(callback));
 	};
 
 	s.debit = function(amount) {
-		client.hincrby(key, 'account', -amount, crashingNum(function(err, value) {
+		client.hincrbyfloat(key, 'account', -amount, crashingNum(function(err, value) {
 			emitter.emit('account', value);
 		}));
 	};
@@ -158,7 +156,7 @@ var newState = function(uid) {
 					amount = maxItJobsPerRequest;
 				}
 				client.multi()
-					.hincrby(key, 'account', amount * itJobPrice)
+					.hincrbyfloat(key, 'account', amount * itJobPrice)
 					.hset(key, 'lastItJobTimestamp', timestamp)
 					.exec(crashing(function(err, value) {
 						emitter.emit('account', value);
@@ -213,15 +211,43 @@ var newState = function(uid) {
 	};
 
 	var chargeForEnergy = function() {
-		getAccount(function(err, account) {
-			var toDebit = Math.min(account, energyCost);
-			if (toDebit > 0) {
-				s.debit(toDebit);
-			}
-		});
+		client.hmget(key, 'scan:eta', 'scan:meter:timestamp', 'scan:meter:paid', 'account', crashing(function(err, result) {
+			var eta = Number(result[0]);
+			var meterTimestamp = Number(result[1]);
+			var paid = Number(result[2]);
+			var account = Number(result[3]);
+			var consumedForLastInterval = eta ? (Date.now() - meterTimestamp) * energyUnitsPerSecond / 1000 : 0;
+			client.hincrbyfloat(key,
+				'scan:meter:consumed', consumedForLastInterval,
+				crashingNum(function(err, consumed) {
+					client.hmset(key,
+						'scan:meter:timestamp', Date.now(),
+						'scan:meter:paid', consumed);
+					var toPay = Math.round((consumed - paid) * costOfEnergyUnit);
+					if (toPay > account) {
+						s.stopScanning();
+						toPay = account;
+					}
+					if (toPay > 0) {
+						s.debit(toPay);
+					}
+				}));
+		}));
+	};
+
+	var onScanListener = function(event) {
+		if (event.eta) {
+			client.hset(key, 'scan:meter:timestamp', Date.now());
+		} else {
+			client.hget(key, 'scan:meter:timestamp', crashingNum(function(err, meterTimestamp) {
+				client.hincrbyfloat(key, 'scan:meter:consumed',
+					(Date.now() - meterTimestamp) * energyUnitsPerSecond / 1000);
+			}));
+		}
 	};
 
 	var activate = function() {
+		emitter.on('scan', onScanListener);
 		setInterval(chargeForEnergy, energyBillInterval);
 	};
 
@@ -236,6 +262,10 @@ var newState = function(uid) {
 			crashing(activate)
 		);
 		return s;
+	};
+
+	s.destroy = function() {
+		emitter.removeListener('scan', onScanListener);
 	};
 
 	return s;
@@ -317,6 +347,7 @@ sessStore.on('connect', function() {
 				socket.on('disconnect', function() {
 					s.removeListener('account', accountListener);
 					s.removeListener('scan', scanListener);
+					s.destroy();
 				});
 
 				s.debit(0);
