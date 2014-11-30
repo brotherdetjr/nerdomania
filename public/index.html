@@ -37,8 +37,8 @@
 						</tr>
 					</tbody>
 				</table>
-				<div class="progress" ng-show="scanning">
-					<div class="progress-bar progress-bar-striped active" role="progressbar" aria-valuenow="{{scanProgress}}" aria-valuemin="0" aria-valuemax="100" ng-style="{width: scanProgress + '%'}">
+				<div class="progress" ng-show="scanState != 'stopped'">
+					<div class="progress-bar progress-bar-striped" ng-class="scanState == 'running' && 'active' || scanState == 'frozen' && 'semitransparent'" role="progressbar" aria-valuenow="{{scanProgress}}" aria-valuemin="0" aria-valuemax="100" ng-style="{width: scanProgress + '%'}">
 						<span class="sr-only">{{scanProgress}}% Complete</span>
 					</div>
 				</div>

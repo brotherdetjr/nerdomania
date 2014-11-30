@@ -177,10 +177,11 @@ var newState = function(uid) {
 					client.hmset(key,
 						'scan:id', scanId,
 						'scan:eta', eta,
+						'scan:state', 'running',
 						'scan:checkpoint:timestamp', Date.now(),
 						'scan:checkpoint:progress', checkpointProgress
 					);
-					emitter.emit('scan', {progress: checkpointProgress, eta: eta});
+					emitter.emit('scan', {progress: checkpointProgress, eta: eta, state: 'running'});
 				}));
 			}
 		}));
@@ -190,9 +191,10 @@ var newState = function(uid) {
 		client.hget(key, 'scan:id', crashingNum(function(err, scanId) {
 			if (scanId) {
 				unschedule(scanId);
-				client.hmget(key, 'scan:checkpoint:progress', 'scan:checkpoint:timestamp', crashing(function(err, results) {
-					var checkpointProgress = results[0];
-					var checkpointTimestamp = results[1];
+				client.hmget(key, 'scan:checkpoint:progress', 'scan:checkpoint:timestamp', 'frozen', crashing(function(err, results) {
+					var checkpointProgress = Number(results[0]);
+					var checkpointTimestamp = Number(results[1]);
+					var state = Number(results[2]) ? 'frozen' : 'stopped';
 					var now = Date.now();
 					var progress = (now - checkpointTimestamp) / fullScanTime * 100 + checkpointProgress;
 					if (progress >= 100) {
@@ -201,10 +203,11 @@ var newState = function(uid) {
 					client.hmset(key,
 						'scan:id', 0,
 						'scan:eta', 0,
+						'scan:state', state,
 						'scan:checkpoint:timestamp', now,
 						'scan:checkpoint:progress', progress
 					);
-					emitter.emit('scan', {progress: progress});
+					emitter.emit('scan', {progress: progress, state: state});
 				}));
 			}
 		}));
@@ -225,7 +228,9 @@ var newState = function(uid) {
 						'scan:meter:paid', consumed);
 					var toPay = Math.round((consumed - paid) * costOfEnergyUnit);
 					if (toPay > account) {
-						s.stopScanning();
+						client.hset(key, 'frozen', 1, crashing(function(err, value) {
+							s.stopScanning();
+						}));
 						toPay = account;
 					}
 					if (toPay > 0) {
@@ -255,6 +260,7 @@ var newState = function(uid) {
 		client.hmset(key,
 			'account', initialAccount,
 			'lastItJobTimestamp', 0,
+			'frozen', 0,
 			'scan:id', 0,
 			'scan:eta', 0,
 			'scan:checkpoint:timestamp', 0,

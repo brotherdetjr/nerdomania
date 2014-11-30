@@ -27,3 +27,7 @@ footer .container-fluid > * {
 	-moz-transition: none;
 	transition: none;
 }
+
+.semitransparent {
+	opacity: 0.4;
+}

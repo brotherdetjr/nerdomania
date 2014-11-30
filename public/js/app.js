@@ -11,7 +11,8 @@ mainModule.controller('MainCtrl', ['$scope', '$interval', function($scope, $inte
 	$scope.account = 0;
 	$scope.scanResults = [];
 	$scope.scanProgress = 0;
-	$scope.scanning = false;
+	$scope.scanState = 'stopped';
+	$scope.scanPromise = null;
 
 	$scope.scanButtonClick = function() {
 		socket.emit('scan');
@@ -39,21 +40,26 @@ mainModule.controller('MainCtrl', ['$scope', '$interval', function($scope, $inte
 		}
 	});
 
+	var cancelScanPromise = function() {
+		$interval.cancel($scope.scanPromise);
+		$scope.scanPromise = null;
+	};
+
 	socket.on('scan', function(value) {
 		$scope.scanProgress = value.progress;
-		if (value.eta != null) {
-			$scope.scanning = true;
+		$scope.scanState = value.state;
+		if (value.state == 'running') {
 			var delta = (100 - $scope.scanProgress) / fps / value.eta * 1000;
-			var promise = $interval(function() {
+			$scope.scanPromise = $interval(function() {
 				if ($scope.scanProgress >= 100) {
-					$scope.scanning = false;
-					$interval.cancel(promise);
+					$scope.scanState = 'stopped';
+					cancelScanPromise();
 				} else {
 					$scope.scanProgress += delta;
 				}
 			}, 1000 / fps);
-		} else {
-			$scope.scanning = false;
+		} else if ($scope.scanPromise != null) {
+			cancelScanPromise();
 		}
 	});
 
