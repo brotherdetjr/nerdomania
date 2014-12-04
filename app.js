@@ -30,13 +30,10 @@ var initialAccount = 75;
 var minIntervalBetweenItJobs = 1000;
 var maxItJobsPerRequest = 5;
 var itJobPrice = 10;
-var energyCost = 5;
-var energyBillInterval = 1000;
 var maxLevel = 80;
 var scanResultsCount = 5;
 var fullScanTime = 5000;
 var energyUnitsPerSecond = 1;
-var costOfEnergyUnit = 10;
 
 var secret = 'very$ecret815XYZ';
 
@@ -130,6 +127,7 @@ var newState = function(uid) {
 					.rpush(scanResultsKey, r.ip)
 					.hmset(scanResultsKey + ':' + r.ip,
 						'firewallLevel', r.firewallLevel,
+						'antivirusLevel', r.antivirusLevel,
 						'passwordLevel', r.passwordLevel);
 			});
 			multi.exec(crashing(callback, function() { return results; }));
@@ -213,33 +211,6 @@ var newState = function(uid) {
 		}));
 	};
 
-	var chargeForEnergy = function() {
-		client.hmget(key, 'scan:eta', 'scan:meter:timestamp', 'scan:meter:paid', 'account', crashing(function(err, result) {
-			var eta = Number(result[0]);
-			var meterTimestamp = Number(result[1]);
-			var paid = Number(result[2]);
-			var account = Number(result[3]);
-			var consumedForLastInterval = eta ? (Date.now() - meterTimestamp) * energyUnitsPerSecond / 1000 : 0;
-			client.hincrbyfloat(key,
-				'scan:meter:consumed', consumedForLastInterval,
-				crashingNum(function(err, consumed) {
-					client.hmset(key,
-						'scan:meter:timestamp', Date.now(),
-						'scan:meter:paid', consumed);
-					var toPay = Math.round((consumed - paid) * costOfEnergyUnit);
-					if (toPay > account) {
-						client.hset(key, 'frozen', 1, crashing(function(err, value) {
-							s.stopScanning();
-						}));
-						toPay = account;
-					}
-					if (toPay > 0) {
-						s.debit(toPay);
-					}
-				}));
-		}));
-	};
-
 	var onScanListener = function(event) {
 		if (event.eta) {
 			client.hset(key, 'scan:meter:timestamp', Date.now());
@@ -253,7 +224,6 @@ var newState = function(uid) {
 
 	var activate = function() {
 		emitter.on('scan', onScanListener);
-		setInterval(chargeForEnergy, energyBillInterval);
 	};
 
 	s.init = function() {
@@ -292,6 +262,7 @@ var scanResult = function() {
 	return {
 			ip: randomIp(),
 			firewallLevel: randomLevel(),
+			antivirusLevel: randomLevel(),
 			passwordLevel: randomLevel()
 	};
 };

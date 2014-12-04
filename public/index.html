@@ -26,6 +26,7 @@
 						<tr>
 							<th>IP</th>
 							<th>Firewall Level</th>
+							<th>Antivirus Level</th>
 							<th>Password Level</th>
 						</tr>
 					</thead>
@@ -33,6 +34,7 @@
 						<tr ng-repeat="scanResult in scanResults">
 							<td>{{scanResult.ip}}</td>
 							<td>{{scanResult.firewallLevel}}</td>
+							<td>{{scanResult.antivirusLevel}}</td>
 							<td>{{scanResult.passwordLevel}}</td>
 						</tr>
 					</tbody>
@@ -42,8 +44,30 @@
 						<span class="sr-only">{{scanProgress}}% Complete</span>
 					</div>
 				</div>
-				<button type="button" class="btn btn-default" ng-click="scanButtonClick()">Scan&nbsp;<span class="glyphicon glyphicon-search" aria-hidden="true"></span></button>
+				<button type="button" ng-class="{'btn': true, 'btn-default': true, 'disabled': scanState != 'stopped'}" ng-click="scanButtonClick()">Scan&nbsp;<span class="glyphicon glyphicon-search" aria-hidden="true"></span></button>
 				<button type="button" class="btn btn-default" ng-click="itJobButtonClick()">IT Job&nbsp;<span class="glyphicon glyphicon-time" aria-hidden="true"></span></button>
+			</div>
+		</div>
+		<div class="panel">
+			<div class="progress">
+				<div class="progress-bar progress-bar-success" style="width: 33%; background-color:#bbddbb">
+					<div class="progress-bar progress-bar-success progress-bar-striped active" style="width: 100%;text-overflow: ellipsis; white-space: nowrap; overflow: hidden;">
+						<span class="">Firewall</span>
+					</div>
+					<span style="color: #777777; display: none;">Firewall</span>
+				</div>
+				<div class="progress-bar progress-bar-warning" style="width: 33%; background-color:#ddddbb">
+					<div class="progress-bar progress-bar-warning progress-bar-striped active" style="width: 15%;text-overflow: ellipsis; white-space: nowrap; overflow: hidden;">
+						<span class="">Antivirus</span>
+					</div>
+					<span style="color: #777777; display: none">Antivirus</span>
+				</div>
+				<div class="progress-bar progress-bar-danger" style="width: 34%; background-color:#ddbbbb">
+					<div class="progress-bar progress-bar-danger progress-bar-striped active" style="width: 0; text-overflow: ellipsis; white-space: nowrap; overflow: hidden;">
+						<span class="">Password</span>
+					</div>
+					<span style="color:#777777;">Password</span>
+				</div>
 			</div>
 		</div>
 	</div>
