@@ -88,9 +88,9 @@ client.on('error', function (err) {
 	process.exit(1);
 });
 
-var states = {};
+var userStates = {};
 
-var newState = function(uid) {
+var newUserState = function(uid) {
 	var key = 'user:' + uid;
 	var emitter = new EventEmitter();
 
@@ -163,85 +163,92 @@ var newState = function(uid) {
 		});
 	};
 
-	s.startScanning = function() {
-		client.hget(key, 'scan:id', crashingNum(function(err, scanId) {
-			if (!scanId) {
-				client.hget(key, 'scan:checkpoint:progress', crashingNum(function(err, checkpointProgress) {
+	s.startProgress = function(progressKey, fullTime) {
+		var progKey = 'progress:' + progressKey;
+		client.hget(key, progKey + ':id', crashingNum(function(err, progId) {
+			if (!progId) {
+				client.hget(key, progKey + ':checkpoint:progress', crashingNum(function(err, checkpointProgress) {
 					if (checkpointProgress >= 100) {
 						checkpointProgress = 0;
 					}
-					var eta = Math.round((100 - checkpointProgress) / 100 * fullScanTime);
-					var scanId = schedule(s.stopScanning, eta);
+					var eta = Math.round((100 - checkpointProgress) / 100 * fullTime);
+					var progId = schedule(function() { s.stopProgress(progressKey); }, eta);
 					client.hmset(key,
-						'scan:id', scanId,
-						'scan:eta', eta,
-						'scan:state', 'running',
-						'scan:checkpoint:timestamp', Date.now(),
-						'scan:checkpoint:progress', checkpointProgress
+						progKey + ':id', progId,
+						progKey + ':eta', eta,
+						progKey + ':fullTime', fullTime,
+						progKey + ':state', 'running',
+						progKey + ':checkpoint:timestamp', Date.now(),
+						progKey + ':checkpoint:progress', checkpointProgress
 					);
-					emitter.emit('scan', {progress: checkpointProgress, eta: eta, state: 'running'});
+					emitter.emit(progKey, {progress: checkpointProgress, eta: eta, state: 'running'});
 				}));
 			}
 		}));
 	};
 
-	s.stopScanning = function() {
-		client.hget(key, 'scan:id', crashingNum(function(err, scanId) {
-			if (scanId) {
-				unschedule(scanId);
-				client.hmget(key, 'scan:checkpoint:progress', 'scan:checkpoint:timestamp', 'frozen', crashing(function(err, results) {
-					var checkpointProgress = Number(results[0]);
-					var checkpointTimestamp = Number(results[1]);
-					var state = Number(results[2]) ? 'frozen' : 'stopped';
-					var now = Date.now();
-					var progress = (now - checkpointTimestamp) / fullScanTime * 100 + checkpointProgress;
-					if (progress >= 100) {
-						progress = 100;
-					}
-					client.hmset(key,
-						'scan:id', 0,
-						'scan:eta', 0,
-						'scan:state', state,
-						'scan:checkpoint:timestamp', now,
-						'scan:checkpoint:progress', progress
-					);
-					emitter.emit('scan', {progress: progress, state: state});
-				}));
+	s.stopProgress = function(progressKey) {
+		var progKey = 'progress:' + progressKey;
+		client.hget(key, progKey + ':id', crashingNum(function(err, progId) {
+			if (progId) {
+				unschedule(progId);
+				client.hmget(key,
+					progKey + ':checkpoint:progress',
+					progKey + ':checkpoint:timestamp',
+					'frozen',
+					progKey + ':fullTime',
+					crashing(function(err, results) {
+						var checkpointProgress = Number(results[0]);
+						var checkpointTimestamp = Number(results[1]);
+						var state = Number(results[2]) ? 'frozen' : 'stopped';
+						var fullTime = Number(results[3]);
+						var now = Date.now();
+						var progress = (now - checkpointTimestamp) / fullTime * 100 + checkpointProgress;
+						if (progress >= 100) {
+							progress = 100;
+						}
+						client.hmset(key,
+							progKey + ':id', 0,
+							progKey + ':eta', 0,
+							progKey + ':state', state,
+							progKey + ':checkpoint:timestamp', now,
+							progKey + ':checkpoint:progress', progress
+						);
+						emitter.emit(progKey, {progress: progress, state: state});
+					}));
 			}
 		}));
-	};
-
-	var onScanListener = function(event) {
-		if (event.eta) {
-			client.hset(key, 'scan:meter:timestamp', Date.now());
-		} else {
-			client.hget(key, 'scan:meter:timestamp', crashingNum(function(err, meterTimestamp) {
-				client.hincrbyfloat(key, 'scan:meter:consumed',
-					(Date.now() - meterTimestamp) * energyUnitsPerSecond / 1000);
-			}));
-		}
 	};
 
 	var activate = function() {
-		emitter.on('scan', onScanListener);
+		// TODO
+	};
+
+	var initProgress = function(progressKey, multi) {
+		var progKey = 'progress:' + progressKey;	
+		multi.hmset(key,
+			progKey + ':id', 0,
+			progKey + ':eta', 0,
+			progKey + ':checkpoint:timestamp', 0,
+			progKey + ':checkpoint:progress', 0
+		);
 	};
 
 	s.init = function() {
-		client.hmset(key,
+		var multi = client.multi();
+		multi.hmset(key,
 			'account', initialAccount,
 			'lastItJobTimestamp', 0,
 			'frozen', 0,
-			'scan:id', 0,
-			'scan:eta', 0,
-			'scan:checkpoint:timestamp', 0,
-			'scan:checkpoint:progress', 0,
 			crashing(activate)
 		);
+		initProgress('scan', multi);
+		multi.exec(crashing(activate));
 		return s;
 	};
 
 	s.destroy = function() {
-		emitter.removeListener('scan', onScanListener);
+		// TODO
 	};
 
 	return s;
@@ -292,7 +299,7 @@ sessStore.on('connect', function() {
 		if (req.session.uid == null) {
 			req.session.uid = uid;
 			console.log('Anonymous user connected. Assigned uid: %s', uid);
-			states[uid] = newState(uid).init();
+			userStates[uid] = newUserState(uid).init();
 		}
 		next();
 	});
@@ -302,7 +309,7 @@ sessStore.on('connect', function() {
 	io.on('connection', function(socket) {
 		cookieParser(secret, {})(socket.handshake, {}, function (parseErr) {
 			var uid = socket.handshake.signedCookies['connect.sid'];
-			var s = states[uid];
+			var s = userStates[uid];
 			if (s != null) {
 				var scanListener = function(value) {
 					socket.emit('scan', value);
@@ -312,7 +319,7 @@ sessStore.on('connect', function() {
 						});
 					}
 				};
-				s.on('scan', scanListener);
+				s.on('progress:scan', scanListener);
 
 				var accountListener = function(value) {
 					socket.emit('account', value);
@@ -320,10 +327,10 @@ sessStore.on('connect', function() {
 				s.on('account', accountListener);
 
 				socket.on('itJobs', s.payForItJob);
-				socket.on('scan', s.startScanning);
+				socket.on('scan', function() { s.startProgress('scan', fullScanTime); });
 				socket.on('disconnect', function() {
 					s.removeListener('account', accountListener);
-					s.removeListener('scan', scanListener);
+					s.removeListener('progress:scan', scanListener);
 					s.destroy();
 				});
 
