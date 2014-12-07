@@ -18,9 +18,46 @@
 		</div>
 		<div class="panel panel-default">
 			<div class="panel-heading">
-				<h3 class="panel-title">Babosiki: ${{account}}</h3>
+				<h3 class="panel-title">Money: {{account}} creds.</h3>
 			</div>
 			<div class="panel-body">
+				<table class="table">
+					<thead>
+						<tr>
+							<th style="width: 130px" >IP</th>
+							<th></th>
+							<th style="width: 25%">Firewall</th>
+							<th style="width: 25%">Antivirus</th>
+							<th style="width: 25%">Password</th>
+						</tr>
+					</thead>
+					<tbody>
+						<tr ng-repeat="hack in hacking">
+							<td>
+								{{hack.ip}}
+							</td>
+							<td>
+								<div class="btn-group btn-group-xs">
+									<button type="button" class="btn btn-default"><span class="glyphicon glyphicon-pause"></span></button>
+									<button type="button" class="btn btn-default"><span class="glyphicon glyphicon-remove"></span></button>
+								</div>
+							</td>
+							<td colspan="3">
+								<div class="progress progress-hacking">
+									<div class="progress-bar progress-bar-firewall-backing" style="width: 33%">
+										<div class="progress-bar progress-bar-firewall progress-bar-striped active progress-bar-overflow" ng-style="{width: hack.firewall.progress + '%'}"></div>
+									</div>
+									<div class="progress-bar progress-bar-antivirus-backing" style="width: 33%">
+										<div class="progress-bar progress-bar-antivirus progress-bar-striped active progress-bar-overflow" ng-style="{width: hack.antivirus.progress + '%'}"></div>
+									</div>
+									<div class="progress-bar progress-bar-password-backing" style="width: 34%">
+										<div class="progress-bar progress-bar-password progress-bar-striped active progress-bar-overflow" ng-style="{width: hack.password.progress + '%'}"></div>
+									</div>
+								</div>
+							</td>
+						</tr>
+					</tbody>
+				</table>
 				<table class="table table-striped">
 					<thead>
 						<tr>
@@ -40,34 +77,12 @@
 					</tbody>
 				</table>
 				<div class="progress" ng-show="scanState != 'stopped'">
-					<div class="progress-bar progress-bar-striped" ng-class="scanState == 'running' && 'active' || scanState == 'frozen' && 'semitransparent'" role="progressbar" aria-valuenow="{{scanProgress}}" aria-valuemin="0" aria-valuemax="100" ng-style="{width: scanProgress + '%'}">
+					<div class="progress-bar progress-bar-striped" ng-class="scanState == 'running' && 'active' || scanState == 'frozen' && 'semitransparent'" ng-style="{width: scanProgress + '%'}">
 						<span class="sr-only">{{scanProgress}}% Complete</span>
 					</div>
 				</div>
 				<button type="button" ng-class="{'btn': true, 'btn-default': true, 'disabled': scanState != 'stopped'}" ng-click="scanButtonClick()">Scan&nbsp;<span class="glyphicon glyphicon-search" aria-hidden="true"></span></button>
 				<button type="button" class="btn btn-default" ng-click="itJobButtonClick()">IT Job&nbsp;<span class="glyphicon glyphicon-time" aria-hidden="true"></span></button>
-			</div>
-		</div>
-		<div class="panel">
-			<div class="progress">
-				<div class="progress-bar progress-bar-success" style="width: 33%; background-color:#bbddbb">
-					<div class="progress-bar progress-bar-success progress-bar-striped active" style="width: 100%;text-overflow: ellipsis; white-space: nowrap; overflow: hidden;">
-						<span class="">Firewall</span>
-					</div>
-					<span style="color: #777777; display: none;">Firewall</span>
-				</div>
-				<div class="progress-bar progress-bar-warning" style="width: 33%; background-color:#ddddbb">
-					<div class="progress-bar progress-bar-warning progress-bar-striped active" style="width: 15%;text-overflow: ellipsis; white-space: nowrap; overflow: hidden;">
-						<span class="">Antivirus</span>
-					</div>
-					<span style="color: #777777; display: none">Antivirus</span>
-				</div>
-				<div class="progress-bar progress-bar-danger" style="width: 34%; background-color:#ddbbbb">
-					<div class="progress-bar progress-bar-danger progress-bar-striped active" style="width: 0; text-overflow: ellipsis; white-space: nowrap; overflow: hidden;">
-						<span class="">Password</span>
-					</div>
-					<span style="color:#777777;">Password</span>
-				</div>
 			</div>
 		</div>
 	</div>

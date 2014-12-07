@@ -14,6 +14,45 @@ mainModule.controller('MainCtrl', ['$scope', '$interval', function($scope, $inte
 	$scope.scanState = 'stopped';
 	$scope.scanPromise = null;
 
+	$scope.hacking = [
+		{
+			ip: '105.233.93.223',
+			firewall: {
+				progress: 100
+			},
+			antivirus: {
+				progress: 15
+			},
+			password: {
+				progress: 0
+			}
+		},
+		{
+			ip: '235.186.151.249',
+			firewall: {
+				progress: 40
+			},
+			antivirus: {
+				progress: 0
+			},
+			password: {
+				progress: 0
+			}
+		},
+		{
+			ip: '80.28.194.208',
+			firewall: {
+				progress: 100
+			},
+			antivirus: {
+				progress: 100
+			},
+			password: {
+				progress: 90
+			}
+		},
+	];
+
 	$scope.scanButtonClick = function() {
 		socket.emit('scan');
 	};

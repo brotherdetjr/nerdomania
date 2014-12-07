@@ -28,6 +28,40 @@ footer .container-fluid > * {
 	transition: none;
 }
 
+.progress-bar-overflow {
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	overflow: hidden;
+}
+
+.progress-hacking {
+	margin-bottom: 0;
+}
+
+.progress-bar-firewall-backing {
+	background-color: #bbddbb;
+}
+
+.progress-bar-firewall {
+	background-color: #5cb85c;
+}
+
+.progress-bar-antivirus-backing {
+	background-color: #ddddbb;
+}
+
+.progress-bar-antivirus {
+	background-color: #f0ad4e;
+}
+
+.progress-bar-password-backing {
+	background-color: #ddbbbb;
+}
+
+.progress-bar-password {
+	background-color: #d9534f;
+}
+
 .semitransparent {
 	opacity: 0.4;
 }
