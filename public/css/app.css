@@ -39,29 +39,37 @@ footer .container-fluid > * {
 }
 
 .progress-bar-firewall-backing {
-	background-color: #bbddbb;
+	background-color: #bbbbdd;
 }
 
 .progress-bar-firewall {
-	background-color: #5cb85c;
+	background-color: #337ab7;
 }
 
 .progress-bar-antivirus-backing {
-	background-color: #ddddbb;
+	background-color: #bbddbb;
 }
 
 .progress-bar-antivirus {
-	background-color: #f0ad4e;
+	background-color: #5cb85c;
 }
 
 .progress-bar-password-backing {
-	background-color: #ddbbbb;
+	background-color: #ddddbb;
 }
 
 .progress-bar-password {
+	background-color: #f0ad4e;
+}
+
+.progress-bar-transfer-backing {
+	background-color: #ddbbbb;
+}
+
+.progress-bar-transfer {
 	background-color: #d9534f;
 }
 
-.semitransparent {
-	opacity: 0.4;
+.btn-group-unbreakable {
+	display: flex;
 }

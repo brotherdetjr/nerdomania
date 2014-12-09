@@ -6,7 +6,6 @@ mainModule.controller('MainCtrl', ['$scope', '$interval', function($scope, $inte
 	var socket = io();
 	var itJobPrice = 10; // TODO: retrieve from server
 
-	$scope.value = 'sisechki';
 	$scope.itJobClicks = 0;
 	$scope.account = 0;
 	$scope.scanResults = [];
@@ -17,6 +16,7 @@ mainModule.controller('MainCtrl', ['$scope', '$interval', function($scope, $inte
 	$scope.hacking = [
 		{
 			ip: '105.233.93.223',
+			state: 'running',
 			firewall: {
 				progress: 100
 			},
@@ -25,10 +25,14 @@ mainModule.controller('MainCtrl', ['$scope', '$interval', function($scope, $inte
 			},
 			password: {
 				progress: 0
+			},
+			transfer: {
+				progress: 0
 			}
 		},
 		{
 			ip: '235.186.151.249',
+			state: 'running',
 			firewall: {
 				progress: 40
 			},
@@ -37,10 +41,14 @@ mainModule.controller('MainCtrl', ['$scope', '$interval', function($scope, $inte
 			},
 			password: {
 				progress: 0
+			},
+			transfer: {
+				progress: 0
 			}
 		},
 		{
 			ip: '80.28.194.208',
+			state: 'stopped',
 			firewall: {
 				progress: 100
 			},
@@ -49,8 +57,27 @@ mainModule.controller('MainCtrl', ['$scope', '$interval', function($scope, $inte
 			},
 			password: {
 				progress: 90
+			},
+			transfer: {
+				progress: 0
 			}
 		},
+		{
+			ip: '42.128.0.17',
+			state: 'running',
+			firewall: {
+				progress: 100
+			},
+			antivirus: {
+				progress: 100
+			},
+			password: {
+				progress: 100
+			},
+			transfer: {
+				progress: 55
+			}
+		}
 	];
 
 	$scope.scanButtonClick = function() {
