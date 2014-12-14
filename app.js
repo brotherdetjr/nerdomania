@@ -82,11 +82,68 @@ var crashingList = function(callback) {
 	return crashing(callback, function(reply) { return reply == null ? [] : reply; }, true);
 };
 
-var client = redis.createClient();
-client.on('error', function (err) {
+var redisClient = redis.createClient();
+redisClient.on('error', function (err) {
 	console.log(new Error(err).stack);
 	process.exit(1);
 });
+
+var PersistenceClient = function(client) {
+	var transformCb = function(a) {
+		var cb = a[a.length - 1];
+		if (cb instanceof Function) {
+			var args = [].slice.call(a, 0, a.length - 1);
+			return args.concat(crashing(cb));
+		} else {
+			return a;
+		}
+	};
+
+	this.hgetNum = function(key, prop, callback) {
+		client.hget(key, prop, crashingNum(callback));
+	};
+	this.hincrbyfloat = function(key, prop, delta, callback) {
+		client.hincrbyfloat(key, prop, delta, crashingNum(callback));
+	};
+	this.lrange = function(key, start, stop, callback) {
+		client.lrange(key, start, stop, crashingList(callback));
+	};
+	this.del = function(keys, callback) {
+		client.del(keys, crashingNum(callback));
+	};
+	this.hmset = function() {
+		client.hmset.apply(client, transformCb(arguments));
+	};
+	this.hmget = function() {
+		client.hmget.apply(client, transformCb(arguments));
+	};
+
+	this.multi = function() {
+		var redisMulti = client.multi();
+		var multi;
+		multi = {
+			rpush: function() {
+				redisMulti.rpush.apply(redisMulti, arguments); return multi;
+			},
+			hmset: function() {
+				redisMulti.hmset.apply(redisMulti, transformCb(arguments)); return multi;
+			},
+			hset: function() {
+				redisMulti.hset.apply(redisMulti, arguments); return multi;
+			},
+			hincrbyfloat: function() {
+				redisMulti.hincrbyfloat.apply(redisMulti, arguments); return multi;
+			},
+			exec: function(callback) {
+				redisMulti.exec(crashing(callback, function(results) { return results; }));
+			}
+		};
+		return multi;
+	};
+
+};
+
+var client = new PersistenceClient(redisClient);
 
 var userStates = {};
 
@@ -97,25 +154,24 @@ var newUserState = function(uid) {
 	var s = {};
 
 	var getLastItJobTimestamp = function(callback) {
-		client.hget(key, 'lastItJobTimestamp', crashingNum(callback));
+		client.hgetNum(key, 'lastItJobTimestamp', callback);
 	};
 
 	s.debit = function(amount) {
-		client.hincrbyfloat(key, 'account', -amount, crashingNum(function(err, value) {
+		client.hincrbyfloat(key, 'account', -amount, function(err, value) {
 			emitter.emit('account', value);
-		}));
+		});
 	};
 
 	var clearScanResults = function(callback) {
 		var scanResultsKey = key + ':scanResults';
-		var cb = crashingNum(callback);
-		client.lrange(scanResultsKey, 0, -1, crashingList(function(err, ips) {
+		client.lrange(scanResultsKey, 0, -1, function(err, ips) {
 			if (ips.length > 0) {
-				client.del([scanResultsKey].concat(ips.map(function(ip) { return scanResultsKey + ':' + ip; })), cb);
+				client.del([scanResultsKey].concat(ips.map(function(ip) { return scanResultsKey + ':' + ip; })), callback);
 			} else {
-				cb(null, 0);
+				callback(null, 0);
 			}
-		}));
+		});
 	};
 
 	var storeScanResults = function(results, callback) {
@@ -130,12 +186,12 @@ var newUserState = function(uid) {
 						'antivirusLevel', r.antivirusLevel,
 						'passwordLevel', r.passwordLevel);
 			});
-			multi.exec(crashing(callback, function() { return results; }));
+			multi.exec(callback);
 		});
 	};
 
 	s.generateScanResults = function(callback) {
-		storeScanResults(scanResults(), crashing(callback));
+		storeScanResults(scanResults(), callback);
 	};
 
 	s.on = function(event, listener) {
@@ -156,17 +212,15 @@ var newUserState = function(uid) {
 				client.multi()
 					.hincrbyfloat(key, 'account', amount * itJobPrice)
 					.hset(key, 'lastItJobTimestamp', timestamp)
-					.exec(crashing(function(err, value) {
-						emitter.emit('account', value);
-					}, function(replies) { return Number(replies[0]); }));
+					.exec(function(err, replies) { emitter.emit('account', Number(replies[0])); });
 			}
 		});
 	};
 
 	s.startProgress = function(progKey, fullTime, etaCallback) {
-		client.hget(key, progKey + ':id', crashingNum(function(err, progId) {
+		client.hgetNum(key, progKey + ':id', function(err, progId) {
 			if (!progId) {
-				client.hget(key, progKey + ':checkpoint:progress', crashingNum(function(err, checkpointProgress) {
+				client.hgetNum(key, progKey + ':checkpoint:progress', function(err, checkpointProgress) {
 					if (checkpointProgress > 100) {
 						checkpointProgress = 100;
 					}
@@ -183,20 +237,20 @@ var newUserState = function(uid) {
 							emitter.emit(progKey, {progress: checkpointProgress, eta: eta, state: 'running'});
 						}
 					);
-				}));
+				});
 			}
-		}));
+		});
 	};
 
 	s.stopProgress = function(progKey, forcedProgress) {
-		client.hget(key, progKey + ':id', crashingNum(function(err, progId) {
+		client.hgetNum(key, progKey + ':id', function(err, progId) {
 			if (progId) {
 				unschedule(progId);
 				client.hmget(key,
 					progKey + ':checkpoint:progress',
 					progKey + ':checkpoint:timestamp',
 					progKey + ':fullTime',
-					crashing(function(err, results) {
+					function(err, results) {
 						var checkpointProgress = Number(results[0]);
 						var checkpointTimestamp = Number(results[1]);
 						var fullTime = Number(results[2]);
@@ -217,9 +271,9 @@ var newUserState = function(uid) {
 								emitter.emit(progKey, {progress: progress, state: 'stopped'});
 							}
 						);
-					}));
+					});
 			}
-		}));
+		});
 	};
 
 	var activate = function() {
@@ -240,11 +294,10 @@ var newUserState = function(uid) {
 		multi.hmset(key,
 			'account', initialAccount,
 			'lastItJobTimestamp', 0,
-			'frozen', 0,
-			crashing(activate)
+			'frozen', 0
 		);
 		initProgress('progress:scan', multi);
-		multi.exec(crashing(activate));
+		multi.exec(activate);
 		return s;
 	};
 
