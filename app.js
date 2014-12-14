@@ -163,58 +163,60 @@ var newUserState = function(uid) {
 		});
 	};
 
-	s.startProgress = function(progressKey, fullTime) {
-		var progKey = 'progress:' + progressKey;
+	s.startProgress = function(progKey, fullTime, etaCallback) {
 		client.hget(key, progKey + ':id', crashingNum(function(err, progId) {
 			if (!progId) {
 				client.hget(key, progKey + ':checkpoint:progress', crashingNum(function(err, checkpointProgress) {
-					if (checkpointProgress >= 100) {
-						checkpointProgress = 0;
+					if (checkpointProgress > 100) {
+						checkpointProgress = 100;
 					}
 					var eta = Math.round((100 - checkpointProgress) / 100 * fullTime);
-					var progId = schedule(function() { s.stopProgress(progressKey); }, eta);
+					var progId = schedule(function() { etaCallback(progKey); }, eta);
 					client.hmset(key,
 						progKey + ':id', progId,
 						progKey + ':eta', eta,
 						progKey + ':fullTime', fullTime,
 						progKey + ':state', 'running',
 						progKey + ':checkpoint:timestamp', Date.now(),
-						progKey + ':checkpoint:progress', checkpointProgress
+						progKey + ':checkpoint:progress', checkpointProgress,
+						function() {
+							emitter.emit(progKey, {progress: checkpointProgress, eta: eta, state: 'running'});
+						}
 					);
-					emitter.emit(progKey, {progress: checkpointProgress, eta: eta, state: 'running'});
 				}));
 			}
 		}));
 	};
 
-	s.stopProgress = function(progressKey) {
-		var progKey = 'progress:' + progressKey;
+	s.stopProgress = function(progKey, forcedProgress) {
 		client.hget(key, progKey + ':id', crashingNum(function(err, progId) {
 			if (progId) {
 				unschedule(progId);
 				client.hmget(key,
 					progKey + ':checkpoint:progress',
 					progKey + ':checkpoint:timestamp',
-					'frozen',
 					progKey + ':fullTime',
 					crashing(function(err, results) {
 						var checkpointProgress = Number(results[0]);
 						var checkpointTimestamp = Number(results[1]);
-						var state = Number(results[2]) ? 'frozen' : 'stopped';
-						var fullTime = Number(results[3]);
+						var fullTime = Number(results[2]);
 						var now = Date.now();
-						var progress = (now - checkpointTimestamp) / fullTime * 100 + checkpointProgress;
+						var progress = forcedProgress == null ?
+							(now - checkpointTimestamp) / fullTime * 100 + checkpointProgress :
+							forcedProgress;
 						if (progress >= 100) {
 							progress = 100;
 						}
 						client.hmset(key,
 							progKey + ':id', 0,
 							progKey + ':eta', 0,
-							progKey + ':state', state,
+							progKey + ':state', 'stopped',
 							progKey + ':checkpoint:timestamp', now,
-							progKey + ':checkpoint:progress', progress
+							progKey + ':checkpoint:progress', progress,
+							function() {
+								emitter.emit(progKey, {progress: progress, state: 'stopped'});
+							}
 						);
-						emitter.emit(progKey, {progress: progress, state: state});
 					}));
 			}
 		}));
@@ -224,8 +226,7 @@ var newUserState = function(uid) {
 		// TODO
 	};
 
-	var initProgress = function(progressKey, multi) {
-		var progKey = 'progress:' + progressKey;	
+	var initProgress = function(progKey, multi) {
 		multi.hmset(key,
 			progKey + ':id', 0,
 			progKey + ':eta', 0,
@@ -242,7 +243,7 @@ var newUserState = function(uid) {
 			'frozen', 0,
 			crashing(activate)
 		);
-		initProgress('scan', multi);
+		initProgress('progress:scan', multi);
 		multi.exec(crashing(activate));
 		return s;
 	};
@@ -313,11 +314,9 @@ sessStore.on('connect', function() {
 			if (s != null) {
 				var scanListener = function(value) {
 					socket.emit('scan', value);
-					if (value.progress >= 100) {
-						s.generateScanResults(function(err, results) {
-							socket.emit('scanResults', results);
-						});
-					}
+					s.generateScanResults(function(err, results) {
+						socket.emit('scanResults', results);
+					});
 				};
 				s.on('progress:scan', scanListener);
 
@@ -327,7 +326,9 @@ sessStore.on('connect', function() {
 				s.on('account', accountListener);
 
 				socket.on('itJobs', s.payForItJob);
-				socket.on('scan', function() { s.startProgress('scan', fullScanTime); });
+				socket.on('scan', function() { s.startProgress('progress:scan', fullScanTime, function(progKey) {
+					s.stopProgress(progKey, 0);
+				}); });
 				socket.on('disconnect', function() {
 					s.removeListener('account', accountListener);
 					s.removeListener('progress:scan', scanListener);
