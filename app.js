@@ -126,7 +126,10 @@ var PersistenceClient = function(client) {
 				redisMulti.rpush.apply(redisMulti, arguments); return multi;
 			},
 			hmset: function() {
-				redisMulti.hmset.apply(redisMulti, transformCb(arguments)); return multi;
+				redisMulti.hmset.apply(redisMulti, arguments); return multi;
+			},
+			hmget: function() {
+				redisMulti.hmget.apply(redisMulti, arguments); return multi;
 			},
 			hset: function() {
 				redisMulti.hset.apply(redisMulti, arguments); return multi;
@@ -191,7 +194,28 @@ var newUserState = function(uid) {
 	};
 
 	s.generateScanResults = function(callback) {
-		storeScanResults(scanResults(), callback);
+		var newScanResults = scanResults();
+		storeScanResults(newScanResults, function() { callback(null, newScanResults); });
+	};
+
+	var getScanResults = function(cb) {
+		var scanResultsKey = key + ':scanResults';
+		client.lrange(scanResultsKey, 0, -1, function(err, ips) {
+			var multi = client.multi();
+			ips.forEach(function(ip) {
+				multi.hmget(scanResultsKey + ':' + ip,
+					'firewallLevel', 'antivirusLevel', 'passwordLevel');
+			});
+			var n = 0;
+			multi.exec(function(err, results) {
+				cb(null, results.map(function(e) { return {
+					ip: ips[n++],
+					firewallLevel: e[0],
+					antivirusLevel: e[1],
+					passwordLevel: e[2]
+				}; }));
+			});
+		});
 	};
 
 	s.on = function(event, listener) {
@@ -273,6 +297,48 @@ var newUserState = function(uid) {
 						);
 					});
 			}
+		});
+	};
+
+	var getProgress = function(progKey, cb) {
+		client.hmget(key,
+			progKey + ':checkpoint:progress',
+			progKey + ':checkpoint:timestamp',
+			progKey + ':fullTime',
+			progKey + ':id',
+			function(err, results) {
+				var checkpointProgress = Number(results[0]);
+				var checkpointTimestamp = Number(results[1]);
+				var fullTime = Number(results[2]);
+				var progId = Number(results[3]);
+				var now = Date.now();
+				var progress = (now - checkpointTimestamp) / fullTime * 100 + checkpointProgress;
+				if (progress >= 100) {
+					progress = 100;
+				}
+				var eta = Math.round((100 - progress) / 100 * fullTime);
+				var result = {
+					progress: progress,
+					state: progId ? 'running' : 'stopped'
+				};
+				if (progId) {
+					result.eta = eta;
+				}
+				cb(null, result);
+			});	
+	};
+
+	s.getMainState = function(cb) {
+		client.hgetNum(key, 'account', function(err, account) {
+			getProgress('progress:scan', function(err, scanProgress) {
+				getScanResults(function(err, scanResults) {
+					cb(null, {
+						account: account,
+						scanProgress: scanProgress,
+						scanResults: scanResults
+					});
+				});
+			});
 		});
 	};
 
@@ -360,35 +426,45 @@ sessStore.on('connect', function() {
 
 	app.use(express.static(__dirname + '/public'));
 
+	var userSockets = {};
+
 	io.on('connection', function(socket) {
+		
 		cookieParser(secret, {})(socket.handshake, {}, function (parseErr) {
 			var uid = socket.handshake.signedCookies['connect.sid'];
 			var s = userStates[uid];
+			userSockets[uid] = socket;
+			var sock = function() { return userSockets[uid]; };
 			if (s != null) {
 				var scanListener = function(value) {
-					socket.emit('scan', value);
-					s.generateScanResults(function(err, results) {
-						socket.emit('scanResults', results);
-					});
+					sock().emit('scan', value);
 				};
 				s.on('progress:scan', scanListener);
 
 				var accountListener = function(value) {
-					socket.emit('account', value);
+					sock().emit('account', value);
 				};
 				s.on('account', accountListener);
 
-				socket.on('itJobs', s.payForItJob);
-				socket.on('scan', function() { s.startProgress('progress:scan', fullScanTime, function(progKey) {
-					s.stopProgress(progKey, 0);
-				}); });
-				socket.on('disconnect', function() {
+				sock().on('itJobs', s.payForItJob);
+				sock().on('scan', function() {
+					s.startProgress('progress:scan', fullScanTime, function(progKey) {
+						s.stopProgress(progKey, 0);
+						s.generateScanResults(function(err, results) {
+							sock().emit('scanResults', results);
+						});
+					});
+				});
+				sock().on('disconnect', function() {
 					s.removeListener('account', accountListener);
 					s.removeListener('progress:scan', scanListener);
 					s.destroy();
+					delete userSockets[uid];
 				});
 
-				s.debit(0);
+				s.getMainState(function(err, state) {
+					sock().emit('mainState', state);
+				});
 			}
 		});
 	});

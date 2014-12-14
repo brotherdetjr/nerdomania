@@ -111,7 +111,7 @@ mainModule.controller('MainCtrl', ['$scope', '$interval', function($scope, $inte
 		$scope.scanPromise = null;
 	};
 
-	socket.on('scan', function(value) {
+	var setScanProgress = function(value) {
 		$scope.scanProgress = value.progress;
 		$scope.scanState = value.state;
 		if (value.state == 'running') {
@@ -127,10 +127,20 @@ mainModule.controller('MainCtrl', ['$scope', '$interval', function($scope, $inte
 		} else if ($scope.scanPromise != null) {
 			cancelScanPromise();
 		}
+	};
+
+	socket.on('scan', function(value) {
+		setScanProgress(value);
 	});
 
 	socket.on('scanResults', function(value) {
 		$scope.scanResults = value;
+	});
+
+	socket.on('mainState', function(state) {
+		$scope.account = state.account;
+		$scope.scanResults = state.scanResults;
+		setScanProgress(state.scanProgress);
 	});
 }]);
 
