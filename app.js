@@ -64,9 +64,7 @@ var crashing = function(callback, converter, nullable) {
 			console.log(new Error(err).stack);
 			process.exit(1);
 		}
-		process.nextTick(function() {
-			callback(null, converter ? converter(reply) : reply);
-		});
+		callback(null, converter ? converter(reply) : reply);
 	};
 };
 
@@ -147,6 +145,81 @@ var PersistenceClient = function(client) {
 };
 
 var client = new PersistenceClient(redisClient);
+
+var VictimManager = function(client) {
+
+	var normalRandom = function() {
+		var x, y, s;
+		do {
+			x = Math.random() * 2 - 1;
+			y = Math.random() * 2 - 1;
+			s = x * x + y * y;
+		} while (s == 0 || s > 1);
+		return x * Math.sqrt(-2 * Math.log(s) / s);
+	};
+
+	var randomLevel = function(baseLevel) {
+		var result = baseLevel + Math.round(normalRandom());
+		result = Math.max(result, 1);
+		return result;
+	};
+
+	var randomIp = function() {
+		var getOctet = function() {
+			return Math.round(Math.random() * 255);
+		};
+		return getOctet() + '.' + getOctet() + '.' + getOctet() + '.' + getOctet();
+	};
+
+	var newVictim = function(ip, baseLevel) {
+		return {
+			ip: ip,
+			firewallLevel: randomLevel(baseLevel),
+			antivirusLevel: randomLevel(baseLevel),
+			passwordLevel: randomLevel(baseLevel),
+			account: Math.abs(normalRandom() * 500)
+		};
+	};
+
+	var store = function(victim, callback) {
+		var scanResultsKey = 'victims';
+			multi
+				.rpush(scanResultsKey, r.ip)
+				.hmset(scanResultsKey + ':' + r.ip,
+					'firewallLevel', r.firewallLevel,
+					'antivirusLevel', r.antivirusLevel,
+					'passwordLevel', r.passwordLevel,
+					'account', r.account);
+			multi.exec(callback);
+		});
+	};
+
+	var generateSingle;
+	generateSingle = function(level, cb) {
+		var ip = randomIp();
+		client.exists(ip, function(err, value) {
+			if (1 == value) {
+				generateSingle(cb);
+			} else {
+				cb(null, newVictim(ip, level));
+			}
+		});
+	};
+
+	this.generate = function(qty, level, userId, cb) {
+		var results = [];
+		for (var i = 0; i < qty; i++) {
+			generateSingle(level, function(err, victim) {
+				store(victim, function() {
+					results.push(victim);
+					if (results.length == qty) {
+						cb(null, results);
+					}
+				});
+			});
+		}
+	};
+};
 
 var userStates = {};
 
@@ -372,35 +445,6 @@ var newUserState = function(uid) {
 	};
 
 	return s;
-};
-
-var randomIp = function() {
-	var getOctet = function() {
-		return Math.round(Math.random() * 255);
-	};
-	return getOctet() + '.' + getOctet() + '.' + getOctet() + '.' + getOctet();
-};
-
-var randomLevel = function() {
-	return Math.round(Math.random() * maxLevel);
-};
-
-var scanResult = function() {
-	return {
-			ip: randomIp(),
-			firewallLevel: randomLevel(),
-			antivirusLevel: randomLevel(),
-			passwordLevel: randomLevel()
-	};
-};
-
-var scanResults = function() {
-	var results = [];
-	var i;
-	for (i = 0; i < scanResultsCount; i++) {
-		results.push(scanResult());
-	}
-	return results;
 };
 
 sessStore.on('connect', function() {
