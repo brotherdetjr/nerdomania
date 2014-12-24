@@ -32,7 +32,7 @@ var maxItJobsPerRequest = 5;
 var itJobPrice = 10;
 var maxLevel = 80;
 var scanResultsCount = 5;
-var fullScanTime = 5000;
+var fullScanTime = 2000;
 var energyUnitsPerSecond = 1;
 
 var secret = 'very$ecret815XYZ';
@@ -115,6 +115,12 @@ var PersistenceClient = function(client) {
 	this.hmget = function() {
 		client.hmget.apply(client, transformCb(arguments));
 	};
+	this.exists = function(key, callback) {
+		client.exists(key, crashingBool(callback));
+	};
+	this.rpush = function() {
+		client.rpush.apply(client, transformCb(arguments));
+	};
 
 	this.multi = function() {
 		var redisMulti = client.multi();
@@ -158,6 +164,10 @@ var VictimManager = function(client) {
 		return x * Math.sqrt(-2 * Math.log(s) / s);
 	};
 
+	var round2 = function(num) {
+		return Math.round(num * 100) / 100;
+	};
+
 	var randomLevel = function(baseLevel) {
 		var result = baseLevel + Math.round(normalRandom());
 		result = Math.max(result, 1);
@@ -177,21 +187,17 @@ var VictimManager = function(client) {
 			firewallLevel: randomLevel(baseLevel),
 			antivirusLevel: randomLevel(baseLevel),
 			passwordLevel: randomLevel(baseLevel),
-			account: Math.abs(normalRandom() * 500)
+			account: Math.abs(round2(normalRandom() * 250 + 500))
 		};
 	};
 
-	var store = function(victim, callback) {
-		var scanResultsKey = 'victims';
-			multi
-				.rpush(scanResultsKey, r.ip)
-				.hmset(scanResultsKey + ':' + r.ip,
-					'firewallLevel', r.firewallLevel,
-					'antivirusLevel', r.antivirusLevel,
-					'passwordLevel', r.passwordLevel,
-					'account', r.account);
-			multi.exec(callback);
-		});
+	var save = function(victim, callback) {
+		client.hmset('victims:' + victim.ip,
+			'firewallLevel', victim.firewallLevel,
+			'antivirusLevel', victim.antivirusLevel,
+			'passwordLevel', victim.passwordLevel,
+			'account', victim.account,
+			callback);
 	};
 
 	var generateSingle;
@@ -199,18 +205,18 @@ var VictimManager = function(client) {
 		var ip = randomIp();
 		client.exists(ip, function(err, value) {
 			if (1 == value) {
-				generateSingle(cb);
+				generateSingle(level, cb);
 			} else {
 				cb(null, newVictim(ip, level));
 			}
 		});
 	};
 
-	this.generate = function(qty, level, userId, cb) {
+	this.generate = function(qty, level, cb) {
 		var results = [];
 		for (var i = 0; i < qty; i++) {
 			generateSingle(level, function(err, victim) {
-				store(victim, function() {
+				save(victim, function() {
 					results.push(victim);
 					if (results.length == qty) {
 						cb(null, results);
@@ -219,7 +225,18 @@ var VictimManager = function(client) {
 			});
 		}
 	};
+
+	this.remove = function(ips, callback) {
+		if (ips.length > 0) {
+			client.del(ips.map(function(ip) { return 'victims' + ':' + ip; }), callback);
+		} else {
+			callback(null, 0);
+		}
+	};
+
 };
+
+var victimManager = new VictimManager(client);
 
 var userStates = {};
 
@@ -240,53 +257,45 @@ var newUserState = function(uid) {
 	};
 
 	var clearScanResults = function(callback) {
-		var scanResultsKey = key + ':scanResults';
-		client.lrange(scanResultsKey, 0, -1, function(err, ips) {
-			if (ips.length > 0) {
-				client.del([scanResultsKey].concat(ips.map(function(ip) { return scanResultsKey + ':' + ip; })), callback);
-			} else {
-				callback(null, 0);
-			}
-		});
-	};
-
-	var storeScanResults = function(results, callback) {
-		var scanResultsKey = key + ':scanResults';
-		clearScanResults(function(err, num) {
-			var multi = client.multi();
-			results.forEach(function(r) {
-				multi
-					.rpush(scanResultsKey, r.ip)
-					.hmset(scanResultsKey + ':' + r.ip,
-						'firewallLevel', r.firewallLevel,
-						'antivirusLevel', r.antivirusLevel,
-						'passwordLevel', r.passwordLevel);
+		var scannedIpsKey = key + ':scannedIps';
+		client.lrange(scannedIpsKey, 0, -1, function(err, ips) {
+			victimManager.remove(ips, function() {
+				client.del(scannedIpsKey, callback);
 			});
-			multi.exec(callback);
 		});
 	};
 
-	s.generateScanResults = function(callback) {
-		var newScanResults = scanResults();
-		storeScanResults(newScanResults, function() { callback(null, newScanResults); });
+	var saveScannedIps = function(ips, callback) {
+		client.rpush.apply(client, [key + ':scannedIps'].concat(ips, callback));
+	};
+
+	s.scan = function(callback) {
+		clearScanResults(function() {
+			victimManager.generate(scanResultsCount, 1, function(err, victims) {
+				saveScannedIps(victims.map(function(v) { return v.ip; }), function() {
+					callback(null, victims);
+				});
+			});
+		});
 	};
 
 	var getScanResults = function(cb) {
-		var scanResultsKey = key + ':scanResults';
-		client.lrange(scanResultsKey, 0, -1, function(err, ips) {
+		client.lrange(key + ':scannedIps', 0, -1, function(err, ips) {
 			var multi = client.multi();
 			ips.forEach(function(ip) {
-				multi.hmget(scanResultsKey + ':' + ip,
-					'firewallLevel', 'antivirusLevel', 'passwordLevel');
+				multi.hmget('victims:' + ip, 'firewallLevel', 'antivirusLevel', 'passwordLevel', 'account');
 			});
 			var n = 0;
 			multi.exec(function(err, results) {
-				cb(null, results.map(function(e) { return {
-					ip: ips[n++],
-					firewallLevel: e[0],
-					antivirusLevel: e[1],
-					passwordLevel: e[2]
-				}; }));
+				cb(null, results.map(function(e) {
+					return {
+						ip: ips[n++],
+						firewallLevel: e[0],
+						antivirusLevel: e[1],
+						passwordLevel: e[2],
+						account: e[3]
+					};
+				}));
 			});
 		});
 	};
@@ -494,7 +503,7 @@ sessStore.on('connect', function() {
 				sock().on('scan', function() {
 					s.startProgress('progress:scan', fullScanTime, function(progKey) {
 						s.stopProgress(progKey, 0);
-						s.generateScanResults(function(err, results) {
+						s.scan(function(err, results) {
 							sock().emit('scanResults', results);
 						});
 					});
