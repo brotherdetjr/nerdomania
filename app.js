@@ -246,6 +246,24 @@ var VictimManager = function(client) {
 		}
 	};
 
+	this.getVictims = function(ips, cb) {
+		var multi = client.multi();
+		ips.forEach(function(ip) {
+			multi.hmget('victims:' + ip, 'firewallLevel', 'antivirusLevel', 'passwordLevel');
+		});
+		var n = 0;
+		multi.exec(function(err, results) {
+			cb(null, results.map(function(e) {
+				return {
+					ip: ips[n++],
+					firewallLevel: e[0],
+					antivirusLevel: e[1],
+					passwordLevel: e[2]
+				};
+			}));
+		});
+	};
+
 };
 
 var victimManager = new VictimManager(client);
@@ -288,21 +306,7 @@ var newUserState = function(uid) {
 
 	var getScanResults = function(cb) {
 		client.lrange(key + ':scannedIps', 0, -1, function(err, ips) {
-			var multi = client.multi();
-			ips.forEach(function(ip) {
-				multi.hmget('victims:' + ip, 'firewallLevel', 'antivirusLevel', 'passwordLevel');
-			});
-			var n = 0;
-			multi.exec(function(err, results) {
-				cb(null, results.map(function(e) {
-					return {
-						ip: ips[n++],
-						firewallLevel: e[0],
-						antivirusLevel: e[1],
-						passwordLevel: e[2]
-					};
-				}));
-			});
+			victimManager.getVictims(ips, cb);
 		});
 	};
 
@@ -347,29 +351,34 @@ var newUserState = function(uid) {
 				);
 			});
 			var n = 0;
-			multi.exec(function(err, results) {
-				cb(null, results.map(function(e) {
-					return {
-						ip: ips[n++],
-						state: e[0],
-						firewall: {
-							progress: e[1],
-							eta: e[2]
-						},
-						antivirus: {
-							progress: e[3],
-							eta: e[4]
-						},
-						password: {
-							progress: e[5],
-							eta: e[6]
-						},
-						transfer: {
-							progress: e[7],
-							eta: e[8]
-						}
-					};
-				}));
+			multi.exec(function(err, hackingList) {
+				victimManager.getVictims(ips, function(err, victims) {
+					cb(null, hackingList.map(function(e) {
+						return {
+							ip: ips[n],
+							state: e[0],
+							firewall: {
+								progress: e[1],
+								eta: e[2],
+								level: victims[n].firewallLevel
+							},
+							antivirus: {
+								progress: e[3],
+								eta: e[4],
+								level: victims[n].antivirusLevel
+							},
+							password: {
+								progress: e[5],
+								eta: e[6],
+								level: victims[n++].passwordLevel
+							},
+							transfer: {
+								progress: e[7],
+								eta: e[8]
+							}
+						};
+					}));
+				})
 			});
 		});
 	};

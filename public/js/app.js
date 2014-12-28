@@ -1,4 +1,4 @@
-var mainModule = angular.module('main', []);
+var mainModule = angular.module('main', ['ui.bootstrap']);
 
 mainModule.factory('socket', function ($rootScope) {
 	var socket = io();
@@ -130,29 +130,31 @@ mainModule.controller('MainCtrl', ['$scope', '$interval', 'socket', function($sc
 	});
 
 	socket.on('movedToHacking', function(ip) {
+		var v = $scope.scanResults.filter(function(e) { return e.ip == ip; })[0];
 		$scope.hacking.push({
 			ip: ip,
 			state: 'stopped',
 			firewall: {
 				progress: 0,
-				eta: 0
+				eta: 0,
+				level: v.firewallLevel
 			},
 			antivirus: {
 				progress: 0,
-				eta: 0
+				eta: 0,
+				level: v.antivirusLevel
 			},
 			password: {
 				progress: 0,
-				eta: 0
+				eta: 0,
+				level: v.passwordLevel
 			},
 			transfer: {
 				progress: 0,
 				eta: 0
 			}
 		});
-		$scope.scanResults = $scope.scanResults.filter(function(e) {
-			return e.ip != ip;
-		});
+		$scope.scanResults = $scope.scanResults.filter(function(e) { return e.ip != ip; });
 	});
 
 	socket.on('removedFromHacking', function(ip) {

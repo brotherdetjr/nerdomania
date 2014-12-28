@@ -82,3 +82,14 @@ footer .container-fluid > * {
 #main-panel > * {
 	margin-bottom: 10px;
 }
+
+.victim-tooltip-table {
+	text-align: left;
+	margin-top: 4px;
+	margin-bottom: 5px;
+}
+
+table.victim-tooltip-table td {
+	padding-bottom: 2px;
+	padding-right: 5px;
+}
