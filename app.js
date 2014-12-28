@@ -109,6 +109,9 @@ var PersistenceClient = function(client) {
 	this.del = function(keys, callback) {
 		client.del(keys, crashingNum(callback));
 	};
+	this.lrem = function(key, count, sample, callback) {
+		client.lrem(key, count, sample, crashingNum(callback));
+	};
 	this.hmset = function() {
 		client.hmset.apply(client, transformCb(arguments));
 	};
@@ -301,18 +304,25 @@ var newUserState = function(uid) {
 	};
 
 	s.moveToHacking = function(ip, cb) {
-		client.multi()
-			.lrem(key + ':scannedIps', 1, ip)
-			.rpush(key + ':hacking', ip)
-			.hset(key + ':hacking:' + ip, 'state', 'stopped')
-			.exec(cb);
+		client.lrem(key + ':scannedIps', 1, ip, function(err, removedCount) {
+			if (removedCount > 0) {
+				client.multi()
+					.rpush(key + ':hacking', ip)
+					.hset(key + ':hacking:' + ip, 'state', 'stopped')
+					.exec(cb);
+			}
+		});
 	};
 
 	s.removeFromHacking = function(ip, cb) {
 		client.multi()
 			.lrem(key + ':hacking', 1, ip)
 			.del(key + ':hacking:' + ip)
-			.exec(cb);
+			.exec(function(err, result) {
+				if (result[0] > 0) {
+					cb(null, true);
+				}
+			});
 	};
 
 	var getHacking = function(cb) {
