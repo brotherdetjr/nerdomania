@@ -6,6 +6,7 @@ html {
 body {
 	/* Margin bottom by footer height */
 	margin-bottom: 60px;
+	margin-top: 12px;
 }
 
 .footer {
@@ -72,4 +73,12 @@ footer .container-fluid > * {
 
 .btn-group-unbreakable {
 	display: flex;
+}
+
+.empty-table-message {
+	text-align: center;
+}
+
+#main-panel > * {
+	margin-bottom: 10px;
 }

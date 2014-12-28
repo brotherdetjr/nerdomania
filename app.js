@@ -141,6 +141,12 @@ var PersistenceClient = function(client) {
 			hincrbyfloat: function() {
 				redisMulti.hincrbyfloat.apply(redisMulti, arguments); return multi;
 			},
+			lrem: function() {
+				redisMulti.lrem.apply(redisMulti, arguments); return multi;
+			},
+			del: function() {
+				redisMulti.del.apply(redisMulti, arguments); return multi;
+			},
 			exec: function(callback) {
 				redisMulti.exec(crashing(callback, function(results) { return results; }));
 			}
@@ -250,12 +256,6 @@ var newUserState = function(uid) {
 		client.hgetNum(key, 'lastItJobTimestamp', callback);
 	};
 
-	s.debit = function(amount) {
-		client.hincrbyfloat(key, 'account', -amount, function(err, value) {
-			emitter.emit('account', value);
-		});
-	};
-
 	var clearScanResults = function(callback) {
 		var scannedIpsKey = key + ':scannedIps';
 		client.lrange(scannedIpsKey, 0, -1, function(err, ips) {
@@ -266,6 +266,7 @@ var newUserState = function(uid) {
 	};
 
 	var saveScannedIps = function(ips, callback) {
+		// TODO refactor client dao to make such calls as client.rpush(client, key + ':scannedIps', ips, callback);
 		client.rpush.apply(client, [key + ':scannedIps'].concat(ips, callback));
 	};
 
@@ -283,7 +284,7 @@ var newUserState = function(uid) {
 		client.lrange(key + ':scannedIps', 0, -1, function(err, ips) {
 			var multi = client.multi();
 			ips.forEach(function(ip) {
-				multi.hmget('victims:' + ip, 'firewallLevel', 'antivirusLevel', 'passwordLevel', 'account');
+				multi.hmget('victims:' + ip, 'firewallLevel', 'antivirusLevel', 'passwordLevel');
 			});
 			var n = 0;
 			multi.exec(function(err, results) {
@@ -292,8 +293,66 @@ var newUserState = function(uid) {
 						ip: ips[n++],
 						firewallLevel: e[0],
 						antivirusLevel: e[1],
-						passwordLevel: e[2],
-						account: e[3]
+						passwordLevel: e[2]
+					};
+				}));
+			});
+		});
+	};
+
+	s.moveToHacking = function(ip, cb) {
+		client.multi()
+			.lrem(key + ':scannedIps', 1, ip)
+			.rpush(key + ':hacking', ip)
+			.hset(key + ':hacking:' + ip, 'state', 'stopped')
+			.exec(cb);
+	};
+
+	s.removeFromHacking = function(ip, cb) {
+		client.multi()
+			.lrem(key + ':hacking', 1, ip)
+			.del(key + ':hacking:' + ip)
+			.exec(cb);
+	};
+
+	var getHacking = function(cb) {
+		client.lrange(key + ':hacking', 0, -1, function(err, ips) {
+			var multi = client.multi();
+			ips.forEach(function(ip) {
+				multi.hmget(key + ':hacking:' + ip,
+					'state',
+					'firewall:progress',
+					'firewall:eta',
+					'antivirus:progress',
+					'antivirus:eta',
+					'password:progress',
+					'password:eta',
+					'transfer:progress',
+					'transfer:eta'
+				);
+			});
+			var n = 0;
+			multi.exec(function(err, results) {
+				cb(null, results.map(function(e) {
+					return {
+						ip: ips[n++],
+						state: e[0],
+						firewall: {
+							progress: e[1],
+							eta: e[2]
+						},
+						antivirus: {
+							progress: e[3],
+							eta: e[4]
+						},
+						password: {
+							progress: e[5],
+							eta: e[6]
+						},
+						transfer: {
+							progress: e[7],
+							eta: e[8]
+						}
 					};
 				}));
 			});
@@ -414,10 +473,13 @@ var newUserState = function(uid) {
 		client.hgetNum(key, 'account', function(err, account) {
 			getProgress('progress:scan', function(err, scanProgress) {
 				getScanResults(function(err, scanResults) {
-					cb(null, {
-						account: account,
-						scanProgress: scanProgress,
-						scanResults: scanResults
+					getHacking(function(err, hacking) {
+						cb(null, {
+							account: account,
+							scanProgress: scanProgress,
+							scanResults: scanResults,
+							hacking: hacking
+						});
 					});
 				});
 			});
@@ -506,6 +568,16 @@ sessStore.on('connect', function() {
 						s.scan(function(err, results) {
 							sock().emit('scanResults', results);
 						});
+					});
+				});
+				sock().on('moveToHacking', function(ip) {
+					s.moveToHacking(ip, function() {
+						sock().emit('movedToHacking', ip);
+					});
+				});
+				sock().on('removeFromHacking', function(ip) {
+					s.removeFromHacking(ip, function() {
+						socket.emit('removedFromHacking', ip);
 					});
 				});
 				sock().on('disconnect', function() {

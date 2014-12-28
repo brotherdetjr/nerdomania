@@ -12,73 +12,7 @@ mainModule.controller('MainCtrl', ['$scope', '$interval', function($scope, $inte
 	$scope.scanProgress = 0;
 	$scope.scanState = 'stopped';
 	$scope.scanPromise = null;
-
-	$scope.hacking = [
-		{
-			ip: '105.233.93.223',
-			state: 'running',
-			firewall: {
-				progress: 100
-			},
-			antivirus: {
-				progress: 15
-			},
-			password: {
-				progress: 0
-			},
-			transfer: {
-				progress: 0
-			}
-		},
-		{
-			ip: '235.186.151.249',
-			state: 'running',
-			firewall: {
-				progress: 40
-			},
-			antivirus: {
-				progress: 0
-			},
-			password: {
-				progress: 0
-			},
-			transfer: {
-				progress: 0
-			}
-		},
-		{
-			ip: '80.28.194.208',
-			state: 'stopped',
-			firewall: {
-				progress: 100
-			},
-			antivirus: {
-				progress: 100
-			},
-			password: {
-				progress: 90
-			},
-			transfer: {
-				progress: 0
-			}
-		},
-		{
-			ip: '42.128.0.17',
-			state: 'running',
-			firewall: {
-				progress: 100
-			},
-			antivirus: {
-				progress: 100
-			},
-			password: {
-				progress: 100
-			},
-			transfer: {
-				progress: 55
-			}
-		}
-	];
+	$scope.hacking = [];
 
 	$scope.scanButtonClick = function() {
 		socket.emit('scan');
@@ -87,6 +21,14 @@ mainModule.controller('MainCtrl', ['$scope', '$interval', function($scope, $inte
 	$scope.itJobButtonClick = function() {
 		$scope.itJobClicks++;
 		$scope.account += itJobPrice;
+	};
+
+	$scope.scannedIpClick = function(ip) {
+		socket.emit('moveToHacking', ip);
+	};
+
+	$scope.removeFromHackingButtonClick = function(ip) {
+		socket.emit('removeFromHacking', ip);
 	};
 
 	$interval(function() {
@@ -137,9 +79,42 @@ mainModule.controller('MainCtrl', ['$scope', '$interval', function($scope, $inte
 		$scope.scanResults = value;
 	});
 
+	socket.on('movedToHacking', function(ip) {
+		$scope.hacking.push({
+			ip: ip,
+			state: 'stopped',
+			firewall: {
+				progress: 0,
+				eta: 0
+			},
+			antivirus: {
+				progress: 0,
+				eta: 0
+			},
+			password: {
+				progress: 0,
+				eta: 0
+			},
+			transfer: {
+				progress: 0,
+				eta: 0
+			}
+		});
+		$scope.scanResults = $scope.scanResults.filter(function(e) {
+			return e.ip != ip;
+		});
+	});
+
+	socket.on('removedFromHacking', function(ip) {
+		$scope.hacking = $scope.hacking.filter(function(e) {
+			return e.ip != ip;
+		});
+	});
+
 	socket.on('mainState', function(state) {
 		$scope.account = state.account;
 		$scope.scanResults = state.scanResults;
+		$scope.hacking = state.hacking;
 		setScanProgress(state.scanProgress);
 	});
 }]);

@@ -13,14 +13,9 @@
 </head>
 <body ng-controller="MainCtrl">
 	<div class="container-fluid">
-		<div class="page-header">
-			<h1>N3RD0MAN1A</h1>
-		</div>
-		<div class="panel panel-default">
-			<div class="panel-heading">
-				<h3 class="panel-title">Money: {{account}} creds.</h3>
-			</div>
-			<div class="panel-body">
+		<div class="panel panel-primary">
+			<div class="panel-heading">N3RD0MAN1A | Money: {{account}} creds.</div>
+			<div id="main-panel" class="panel-body">
 				<table class="table">
 					<thead>
 						<tr>
@@ -40,7 +35,7 @@
 							<td>
 								<div class="btn-group btn-group-xs btn-group-unbreakable">
 									<button type="button" class="btn btn-default"><span class="glyphicon" ng-class="hack.state == 'running' && 'glyphicon-pause' || hack.state == 'stopped' && 'glyphicon-play'"></span></button>
-									<button type="button" class="btn btn-default"><span class="glyphicon glyphicon-remove"></span></button>
+									<button type="button" class="btn btn-default" ng-click="removeFromHackingButtonClick(hack.ip)"><span class="glyphicon glyphicon-remove"></span></button>
 								</div>
 							</td>
 							<td colspan="4">
@@ -62,6 +57,7 @@
 						</tr>
 					</tbody>
 				</table>
+				<div class="empty-table-message" ng-hide="hacking.length">No computers being hacked.</div>
 				<table class="table table-striped">
 					<thead>
 						<tr>
@@ -69,24 +65,25 @@
 							<th>Firewall Level</th>
 							<th>Antivirus Level</th>
 							<th>Password Level</th>
-							<th>Money</th>
 						</tr>
 					</thead>
 					<tbody>
 						<tr ng-repeat="scanResult in scanResults">
-							<td>{{scanResult.ip}}</td>
+							<td><a href="#" ng-click="scannedIpClick(scanResult.ip)">{{scanResult.ip}}</a></td>
 							<td>{{scanResult.firewallLevel}}</td>
 							<td>{{scanResult.antivirusLevel}}</td>
 							<td>{{scanResult.passwordLevel}}</td>
-							<td>{{scanResult.account}}</td>
 						</tr>
 					</tbody>
 				</table>
+				<div class="empty-table-message" ng-hide="scanResults.length">No scan results.</div>
 				<div class="progress" ng-show="scanState != 'stopped'">
 					<div class="progress-bar progress-bar-striped" ng-class="scanState == 'running' && 'active'" ng-style="{width: scanProgress + '%'}">
 						<span class="sr-only">{{scanProgress}}% Complete</span>
 					</div>
 				</div>
+			</div>
+			<div class="panel-footer">
 				<button type="button" ng-class="{'btn': true, 'btn-default': true, 'disabled': scanState != 'stopped'}" ng-click="scanButtonClick()">Scan&nbsp;<span class="glyphicon glyphicon-search" aria-hidden="true"></span></button>
 				<button type="button" class="btn btn-default" ng-click="itJobButtonClick()">IT Job&nbsp;<span class="glyphicon glyphicon-time" aria-hidden="true"></span></button>
 			</div>
