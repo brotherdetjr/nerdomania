@@ -24,6 +24,24 @@ mainModule.factory('socket', function ($rootScope) {
 	};
 });
 
+mainModule.directive('clickOutside', ['$document', '$filter', function($document, $filter) {
+	return {
+		restrict: 'A',
+		link: function(scope, elem, attr, ctrl) {
+			elem.bind('click', function(e) {
+				e.stopPropagation();
+			});
+			var handler = function(event) {
+				scope.$apply(attr.clickOutside);
+			};
+			elem.on('$destroy', function() {
+				$document.unbind('click', handler);
+			});
+			$document.bind('click', handler);
+		}
+	}
+}]);
+
 mainModule.controller('MainCtrl', ['$scope', '$interval', 'socket', function($scope, $interval, socket) {
 	var fps = 20;
 	var itJobPrice = 10; // TODO: retrieve from server
@@ -35,6 +53,7 @@ mainModule.controller('MainCtrl', ['$scope', '$interval', 'socket', function($sc
 	$scope.scanState = 'stopped';
 	$scope.scanPromise = null;
 	$scope.hacking = [];
+	$scope.candidateToRemove = null;
 
 	$scope.scanButtonClick = function() {
 		socket.emit('scan');
@@ -50,7 +69,16 @@ mainModule.controller('MainCtrl', ['$scope', '$interval', 'socket', function($sc
 	};
 
 	$scope.removeFromHackingButtonClick = function(ip) {
-		socket.emit('removeFromHacking', ip);
+		if ($scope.candidateToRemove == ip) {
+			socket.emit('removeFromHacking', $scope.candidateToRemove);
+			$scope.candidateToRemove = null;
+		} else {
+			$scope.candidateToRemove = ip;
+		}
+	};
+
+	$scope.outsideRemoveFromHackingButtonClick = function() {
+		$scope.candidateToRemove = null;
 	};
 
 	$interval(function() {
