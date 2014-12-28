@@ -236,6 +236,9 @@ var VictimManager = function(client) {
 	};
 
 	this.remove = function(ips, callback) {
+		if (!(ips instanceof Array)) {
+			ips = [ips];
+		}
 		if (ips.length > 0) {
 			client.del(ips.map(function(ip) { return 'victims' + ':' + ip; }), callback);
 		} else {
@@ -320,7 +323,9 @@ var newUserState = function(uid) {
 			.del(key + ':hacking:' + ip)
 			.exec(function(err, result) {
 				if (result[0] > 0) {
-					cb(null, true);
+					victimManager.remove(ip, function() {
+						cb(null, true);
+					});
 				}
 			});
 	};
