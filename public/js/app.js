@@ -1,9 +1,31 @@
 var mainModule = angular.module('main', []);
 
-
-mainModule.controller('MainCtrl', ['$scope', '$interval', function($scope, $interval) {
-	var fps = 20;
+mainModule.factory('socket', function ($rootScope) {
 	var socket = io();
+	return {
+		on: function (eventName, callback) {
+			socket.on(eventName, function () {
+				var args = arguments;
+				$rootScope.$apply(function () {
+					callback.apply(socket, args);
+				});
+			});
+		},
+		emit: function (eventName, data, callback) {
+			socket.emit(eventName, data, function () {
+				var args = arguments;
+				$rootScope.$apply(function () {
+					if (callback) {
+						callback.apply(socket, args);
+					}
+				});
+			})
+		}
+	};
+});
+
+mainModule.controller('MainCtrl', ['$scope', '$interval', 'socket', function($scope, $interval, socket) {
+	var fps = 20;
 	var itJobPrice = 10; // TODO: retrieve from server
 
 	$scope.itJobClicks = 0;
