@@ -22,7 +22,7 @@
 					<thead>
 						<tr>
 							<th style="width: 130px" >IP</th>
-							<th></th>
+							<th id="control-column"></th>
 							<th style="width: 20%">Firewall</th>
 							<th style="width: 20%">Antivirus</th>
 							<th style="width: 20%">Password</th>
@@ -32,7 +32,7 @@
 					<tbody>
 						<tr ng-repeat="hack in hacking">
 							<td>
-								<a href="#" tooltip-html-unsafe="<table class='victim-tooltip-table'><tr><td>Firewall level:</td><td>{{hack.firewall.level}}</td></tr><tr><td>Antivirus level:</td><td>{{hack.antivirus.level}}</td></tr><tr><td>Password level:</td><td>{{hack.password.level}}</td></tr></table>">{{hack.ip}}</a>
+								<a href="#" tooltip-html-unsafe="<table class='victim-tooltip-table'><tr><td>Firewall level:</td><td>{{hack.firewall.level}}</td></tr><tr><td>Antivirus level:</td><td>{{hack.antivirus.level}}</td></tr><tr><td>Password level:</td><td>{{hack.password.level}}</td></tr></table>" tooltip-placement="right">{{hack.ip}}</a>
 							</td>
 							<td>
 								<div class="btn-group btn-group-xs btn-group-unbreakable">

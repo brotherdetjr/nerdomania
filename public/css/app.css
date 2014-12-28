@@ -93,3 +93,7 @@ table.victim-tooltip-table td {
 	padding-bottom: 2px;
 	padding-right: 5px;
 }
+
+#control-column {
+	min-width: 120px;
+}
