@@ -8,7 +8,6 @@
 //      introduce config file.
 // TODO brush up require section.
 // TODO tests (unit, integration)
-// TODO github
 // TODO descibe solution design
 // TODO see TODOs in the code...
 // TODO implement serialization of transactions via locking
@@ -33,7 +32,6 @@ var itJobPrice = 10;
 var maxLevel = 80;
 var scanResultsCount = 5;
 var fullScanTime = 2000;
-var energyUnitsPerSecond = 1;
 
 var secret = 'very$ecret815XYZ';
 
@@ -73,7 +71,7 @@ var crashingNum = function(callback) {
 };
 
 var crashingBool = function(callback) {
-	return crashing(callback, function(reply) { return reply == 'true'; });
+	return crashing(callback, function(reply) { return reply == 1; });
 };
 
 var crashingList = function(callback) {
@@ -112,6 +110,9 @@ var PersistenceClient = function(client) {
 	this.lrem = function(key, count, sample, callback) {
 		client.lrem(key, count, sample, crashingNum(callback));
 	};
+	this.hset = function(key, field, value, callback) {
+		client.hset(keys, field, value, crashingBool(callback));
+	};
 	this.hmset = function() {
 		client.hmset.apply(client, transformCb(arguments));
 	};
@@ -140,6 +141,9 @@ var PersistenceClient = function(client) {
 			},
 			hset: function() {
 				redisMulti.hset.apply(redisMulti, arguments); return multi;
+			},
+			hget: function() {
+				redisMulti.hget.apply(redisMulti, arguments); return multi;
 			},
 			hincrbyfloat: function() {
 				redisMulti.hincrbyfloat.apply(redisMulti, arguments); return multi;
@@ -406,96 +410,153 @@ var newUserState = function(uid) {
 		});
 	};
 
-	s.startProgress = function(progKey, fullTime, etaCallback) {
+	var limitProgress = function(value) {
+		if (value > 100) {
+			value = 100;
+		} else if (value < 0) {
+			value = 0;
+		}
+		return value;
+	};
+
+	var scheduleFinish = function(progKey, eta) {
+		return schedule(function() {
+			s.stopProgress(progKey, function(err, progress) {
+				if (progress < 100) {
+					s.setProgress(progKey, 100, function(err, result) {
+						emitter.emit(progKey, result);
+					});
+				}
+			});
+		}, eta);
+	};
+
+	s.setFullTime = function(progKey, fullTime, cb) {
+		client.hset(key, progKey + ':fullTime', fullTime, cb);
+	};
+
+	var getCheckpointProgressAndFullTime = function(progKey, cb) {
 		client.hgetNum(key, progKey + ':id', function(err, progId) {
 			if (!progId) {
-				client.hgetNum(key, progKey + ':checkpoint:progress', function(err, checkpointProgress) {
-					if (checkpointProgress > 100) {
-						checkpointProgress = 100;
-					}
-					var eta = Math.round((100 - checkpointProgress) / 100 * fullTime);
-					var progId = schedule(function() { etaCallback(progKey); }, eta);
-					client.hmset(key,
-						progKey + ':id', progId,
-						progKey + ':eta', eta,
-						progKey + ':fullTime', fullTime,
-						progKey + ':state', 'running',
-						progKey + ':checkpoint:timestamp', Date.now(),
-						progKey + ':checkpoint:progress', checkpointProgress,
-						function() {
-							emitter.emit(progKey, {progress: checkpointProgress, eta: eta, state: 'running'});
-						}
-					);
-				});
-			}
-		});
-	};
-
-	s.stopProgress = function(progKey, forcedProgress) {
-		client.hgetNum(key, progKey + ':id', function(err, progId) {
-			if (progId) {
-				unschedule(progId);
 				client.hmget(key,
 					progKey + ':checkpoint:progress',
-					progKey + ':checkpoint:timestamp',
 					progKey + ':fullTime',
 					function(err, results) {
-						var checkpointProgress = Number(results[0]);
-						var checkpointTimestamp = Number(results[1]);
-						var fullTime = Number(results[2]);
-						var now = Date.now();
-						var progress = forcedProgress == null ?
-							(now - checkpointTimestamp) / fullTime * 100 + checkpointProgress :
-							forcedProgress;
-						if (progress >= 100) {
-							progress = 100;
-						}
-						client.hmset(key,
-							progKey + ':id', 0,
-							progKey + ':eta', 0,
-							progKey + ':state', 'stopped',
-							progKey + ':checkpoint:timestamp', now,
-							progKey + ':checkpoint:progress', progress,
-							function() {
-								emitter.emit(progKey, {progress: progress, state: 'stopped'});
-							}
-						);
-					});
+						cb(null, {
+							checkpointProgress: limitProgress(Number(results[0])),
+							fullTime: Number(results[1])
+						});
+					}
+				);
 			}
 		});
 	};
 
-	var getProgress = function(progKey, cb) {
+	var startProgressAt = function(progKey, progress, eta) {
+		client.hmset(key,
+			progKey + ':id', scheduleFinish(progKey, eta),
+			progKey + ':eta', eta,
+			progKey + ':checkpoint:timestamp', Date.now(),
+			function() {
+				emitter.emit(progKey, {progress: progress, eta: eta, state: 'running'});
+			}
+		);
+	};
+
+	s.startProgress = function(progKey) {
+		getCheckpointProgressAndFullTime(progKey, function(err, result) {
+			var eta = Math.round((100 - result.checkpointProgress) / 100 * result.fullTime);
+			startProgressAt(progKey, result.checkpointProgress, eta);
+		});
+	};
+
+	var getProgressAt = function(progKey, timestamp, cb) {
 		client.hmget(key,
 			progKey + ':checkpoint:progress',
 			progKey + ':checkpoint:timestamp',
 			progKey + ':fullTime',
-			progKey + ':id',
 			function(err, results) {
 				var checkpointProgress = Number(results[0]);
 				var checkpointTimestamp = Number(results[1]);
 				var fullTime = Number(results[2]);
-				var progId = Number(results[3]);
-				var now = Date.now();
-				var progress = (now - checkpointTimestamp) / fullTime * 100 + checkpointProgress;
-				if (progress >= 100) {
-					progress = 100;
+				var progress = (timestamp - checkpointTimestamp) / fullTime * 100 + checkpointProgress;
+				cb(null, limitProgress(progress));
+			});
+	};
+
+	var setProgressAt = function(progKey, progress, timestamp, cb) {
+		client.multi()
+			.hmset(key,
+				progKey + ':checkpoint:timestamp', timestamp,
+				progKey + ':checkpoint:progress', progress)
+			.hget(key, progKey + ':eta')
+			.exec(function(err, results) {
+				var eta = Number(results[1]);
+				var result = {progress: progress, state: eta ? 'running' : 'stopped'};
+				if (eta) {
+					result.eta = eta;
 				}
-				var eta = Math.round((100 - progress) / 100 * fullTime);
+				if (cb != null) {
+					cb(null, result);
+				}
+			});
+	};
+
+	var unscheduleByProgKey = function(progKey, cb) {
+		client.hgetNum(key, progKey + ':id', function(err, progId) {
+			if (progId) {
+				unschedule(progId);
+				cb(null, progId);
+			}
+		});
+	};
+
+	var setStateToStopped = function(progKey, cb) {
+		client.hmset(key,
+			progKey + ':id', 0,
+			progKey + ':eta', 0,
+			cb
+		);
+	};
+
+	s.setProgress = function(progKey, progress, cb) {
+		setProgressAt(progKey, progress, Date.now(), cb);
+	};
+
+	s.stopProgress = function(progKey, cb) {
+		var now = Date.now();
+		unscheduleByProgKey(progKey, function() {
+			getProgressAt(progKey, now, function(err, progress) {
+				setProgressAt(progKey, progress, now, function() {
+					setStateToStopped(progKey, function() {
+						emitter.emit(progKey, {progress: progress, state: 'stopped'});
+						cb(null, progress);
+					});
+				});
+			});
+		});
+	};
+
+	var getProgressState = function(progKey, cb) {
+		getProgressAt(progKey, Date.now(), function(err, progress) {
+			client.hmget(key, progKey + ':id', progKey + ':fullTime', function(err, results) {
+				var progId = Number(results[0]);
+				var fullTime = Number(results[1]);
 				var result = {
 					progress: progress,
 					state: progId ? 'running' : 'stopped'
 				};
 				if (progId) {
-					result.eta = eta;
+					result.eta = Math.round((100 - progress) / 100 * fullTime);
 				}
 				cb(null, result);
-			});	
+			});
+		});
 	};
 
 	s.getMainState = function(cb) {
 		client.hgetNum(key, 'account', function(err, account) {
-			getProgress('progress:scan', function(err, scanProgress) {
+			getProgressState('progress:scan', function(err, scanProgress) {
 				getScanResults(function(err, scanResults) {
 					getHacking(function(err, hacking) {
 						cb(null, {
@@ -514,24 +575,26 @@ var newUserState = function(uid) {
 		// TODO
 	};
 
-	var initProgress = function(progKey, multi) {
-		multi.hmset(key,
+	s.initProgress = function(progKey, fullTime, cb) {
+		client.hmset(key,
 			progKey + ':id', 0,
 			progKey + ':eta', 0,
+			progKey + ':fullTime', fullTime,
 			progKey + ':checkpoint:timestamp', 0,
-			progKey + ':checkpoint:progress', 0
+			progKey + ':checkpoint:progress', 0,
+			cb
 		);
 	};
 
 	s.init = function() {
-		var multi = client.multi();
-		multi.hmset(key,
+		client.hmset(key,
 			'account', initialAccount,
 			'lastItJobTimestamp', 0,
-			'frozen', 0
+			'frozen', 0,
+			function() {
+				s.initProgress('progress:scan', fullScanTime, activate);
+			}
 		);
-		initProgress('progress:scan', multi);
-		multi.exec(activate);
 		return s;
 	};
 
@@ -577,6 +640,13 @@ sessStore.on('connect', function() {
 			if (s != null) {
 				var scanListener = function(value) {
 					sock().emit('scan', value);
+					if (value.progress >= 100) {
+						s.setProgress('progress:scan', 0, function() {
+							s.scan(function(err, results) {
+								sock().emit('scanResults', results);
+							});
+						});
+					}
 				};
 				s.on('progress:scan', scanListener);
 
@@ -587,12 +657,7 @@ sessStore.on('connect', function() {
 
 				sock().on('itJobs', s.payForItJob);
 				sock().on('scan', function() {
-					s.startProgress('progress:scan', fullScanTime, function(progKey) {
-						s.stopProgress(progKey, 0);
-						s.scan(function(err, results) {
-							sock().emit('scanResults', results);
-						});
-					});
+					s.startProgress('progress:scan');
 				});
 				sock().on('moveToHacking', function(ip) {
 					s.moveToHacking(ip, function() {
