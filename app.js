@@ -419,14 +419,18 @@ var newUserState = function(uid) {
 		return value;
 	};
 
+	var setStateToStopped = function(progKey, cb) {
+		client.hmset(key,
+			progKey + ':id', 0,
+			progKey + ':eta', 0,
+			cb
+		);
+	};
+
 	var scheduleFinish = function(progKey, eta) {
 		return schedule(function() {
-			s.stopProgress(progKey, function(err, progress) {
-				if (progress < 100) {
-					s.setProgress(progKey, 100, function(err, result) {
-						emitter.emit(progKey, result);
-					});
-				}
+			setStateToStopped(progKey, function() {
+				s.setProgress(progKey, 100);
 			});
 		}, eta);
 	};
@@ -499,6 +503,7 @@ var newUserState = function(uid) {
 				if (cb != null) {
 					cb(null, result);
 				}
+				emitter.emit(progKey, result);
 			});
 	};
 
@@ -509,14 +514,6 @@ var newUserState = function(uid) {
 				cb(null, progId);
 			}
 		});
-	};
-
-	var setStateToStopped = function(progKey, cb) {
-		client.hmset(key,
-			progKey + ':id', 0,
-			progKey + ':eta', 0,
-			cb
-		);
 	};
 
 	s.setProgress = function(progKey, progress, cb) {
@@ -639,6 +636,7 @@ sessStore.on('connect', function() {
 			var sock = function() { return userSockets[uid]; };
 			if (s != null) {
 				var scanListener = function(value) {
+console.log('emit: %j', value);
 					sock().emit('scan', value);
 					if (value.progress >= 100) {
 						s.setProgress('progress:scan', 0, function() {
