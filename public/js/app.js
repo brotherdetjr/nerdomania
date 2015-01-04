@@ -121,8 +121,34 @@ mainModule.controller('MainCtrl', ['$scope', '$interval', 'socket', function($sc
 		}
 	};
 
+	var setHackingProgress = function(value) {
+		var victim = $.grep($scope.hacking, function(e) { return e.ip == value.ip; })[0];
+		victim.state = value.state;
+		var stage = victim[value.stage];
+		stage.progress = value.progress;
+		if (value.state == 'running') {
+			var delta = (100 - stage.progress) / fps / value.eta * 1000;
+			victim.promise = $interval(function() {
+				if (stage.progress >= 100) {
+					victim.state = 'stopped';
+					$interval.cancel(victim.promise);
+					victim.promise = null;
+				} else {
+					stage.progress += delta;
+				}
+			}, 1000 / fps);
+		} else if (victim.promise != null) {
+			$interval.cancel(victim.promise);
+			victim.promise = null;
+		}
+	};
+
 	socket.on('scan', function(value) {
 		setScanProgress(value);
+	});
+
+	socket.on('hacking', function(value) {
+		setHackingProgress(value);
 	});
 
 	socket.on('scanResults', function(value) {

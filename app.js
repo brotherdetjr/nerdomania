@@ -314,7 +314,39 @@ var newUserState = function(uid) {
 		});
 	};
 
+	var firstHackStage = 'firewall';
+
+	var nextHackStage = function(stage) {
+		if (stage == firstHackStage) {
+			return 'antivirus';
+		} else if (stage == 'antivirus') {
+			return 'password';
+		} else if (stage == 'password') {
+			return 'account';
+		} else {
+			return null;
+		}
+	};
+
+	var subscribeForHackingEvents = function(ip, stage) {
+		emitter.on('progress:hacking:' + ip + ':' + stage, function(evt) {
+			var nextStage = nextHackStage(stage);
+			emitter.emit('hacking', {
+				ip: ip,
+				stage: stage,
+				nextStage: nextStage,
+				progress: evt.progress,
+				state: evt.state,
+				eta: evt.eta
+			});
+			if (evt.progress >= 100 && nextStage != null) {
+				s.subscribeForHackingEvents(ip, nextStage);
+			}
+		});
+	};
+
 	s.moveToHacking = function(ip, cb) {
+		subscribeForHackingEvents(ip, firstHackStage);
 		client.lrem(key + ':scannedIps', 1, ip, function(err, removedCount) {
 			if (removedCount > 0) {
 				client.multi()
@@ -325,7 +357,20 @@ var newUserState = function(uid) {
 		});
 	};
 
+	var unsubscribeFromHackingEvents = function(ip) {
+		var stage = firstHackStage;
+		while (stage != null) {
+			emitter.removeAllListeners('progress:hacking:' + ip + ':' + stage);
+			stage = nextHackStage(stage);
+		}
+	};
+
+	s.getHackingStage = function(ip, cb) {
+		// TODO
+	};
+
 	s.removeFromHacking = function(ip, cb) {
+		unsubscribeFromHackingEvents(ip);
 		client.multi()
 			.lrem(key + ':hacking', 1, ip)
 			.del(key + ':hacking:' + ip)
@@ -389,10 +434,12 @@ var newUserState = function(uid) {
 
 	s.on = function(event, listener) {
 		emitter.on(event, listener);
+		return s;
 	};
 
 	s.removeListener = function(event, listener) {
 		emitter.removeListener(event, listener);
+		return s;
 	};
 
 	s.payForItJob = function(amount) {
@@ -636,7 +683,6 @@ sessStore.on('connect', function() {
 			var sock = function() { return userSockets[uid]; };
 			if (s != null) {
 				var scanListener = function(value) {
-console.log('emit: %j', value);
 					sock().emit('scan', value);
 					if (value.progress >= 100) {
 						s.setProgress('progress:scan', 0, function() {
@@ -657,6 +703,23 @@ console.log('emit: %j', value);
 				sock().on('scan', function() {
 					s.startProgress('progress:scan');
 				});
+				sock().on('startHacking', function(ip) {
+					s.getHackingStage(ip, function(err, stage) {
+						s.startProgress('progress:hacking:' + ip + ':' + stage);
+					});
+				});
+				sock().on('stopHacking', function(ip) {
+					s.getHackingStage(ip, function(err, stage) {
+						s.stopProgress('progress:hacking:' + ip + ':' + stage);
+					});
+				});
+				var hackingListener = function(evt) {
+					sock().emit('hacking', evt);
+					if (evt.progress >= 100 && evt.nextStage != null) {
+						s.startProgress('progress:hacking:' + evt.ip + ':' + evt.nextStage);
+					}
+				};
+				s.on('hacking', hackingListener);
 				sock().on('moveToHacking', function(ip) {
 					s.moveToHacking(ip, function() {
 						sock().emit('movedToHacking', ip);
@@ -668,9 +731,10 @@ console.log('emit: %j', value);
 					});
 				});
 				sock().on('disconnect', function() {
-					s.removeListener('account', accountListener);
-					s.removeListener('progress:scan', scanListener);
-					s.destroy();
+					s.removeListener('account', accountListener)
+					.removeListener('progress:scan', scanListener)
+					.removeListener('hacking', hackingListener)
+					.destroy();
 					delete userSockets[uid];
 				});
 
