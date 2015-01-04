@@ -314,23 +314,37 @@ var newUserState = function(uid) {
 		});
 	};
 
-	var firstHackStage = 'firewall';
+	var firstHackingStage = 'firewall';
 
-	var nextHackStage = function(stage) {
-		if (stage == firstHackStage) {
+	var nextHackingStage = function(stage) {
+		if (stage == firstHackingStage) {
 			return 'antivirus';
 		} else if (stage == 'antivirus') {
 			return 'password';
 		} else if (stage == 'password') {
-			return 'account';
+			return 'transfer';
 		} else {
 			return null;
 		}
 	};
 
+	var stageFullTime = function(ip, stage, cb) {
+		var result;
+		if (stage == firstHackingStage) {
+			result = 1000;
+		} else if (stage == 'antivirus') {
+            result = 2000;
+		} else if (stage == 'password') {
+			result = 4000;
+		} else if (stage == 'transfer') {
+			result = 1500;
+		}
+		cb(null, result);
+	};
+
 	var subscribeForHackingEvents = function(ip, stage) {
 		emitter.on('progress:hacking:' + ip + ':' + stage, function(evt) {
-			var nextStage = nextHackStage(stage);
+			var nextStage = nextHackingStage(stage);
 			emitter.emit('hacking', {
 				ip: ip,
 				stage: stage,
@@ -340,33 +354,48 @@ var newUserState = function(uid) {
 				eta: evt.eta
 			});
 			if (evt.progress >= 100 && nextStage != null) {
-				s.subscribeForHackingEvents(ip, nextStage);
+				s.startProgress('progress:hacking:' + ip + ':' + nextStage);
+				subscribeForHackingEvents(ip, nextStage);
 			}
 		});
 	};
 
+	var initHackingStage = function(ip, stage, fullTime, cb) {
+		s.initProgress('progress:hacking:' + ip + ':' + stage, fullTime, cb);
+	};
+
+	var initHackingProgress;
+	initHackingProgress = function(ip, stage, cb) {
+		if (stage != null) {
+			stageFullTime(ip, stage, function(err, fullTime) {
+				initHackingStage(ip, stage, fullTime, function() {
+					initHackingProgress(ip, nextHackingStage(stage), cb);
+				});
+			});
+		} else {
+			cb();
+		}
+	};
+
 	s.moveToHacking = function(ip, cb) {
-		subscribeForHackingEvents(ip, firstHackStage);
-		client.lrem(key + ':scannedIps', 1, ip, function(err, removedCount) {
-			if (removedCount > 0) {
-				client.multi()
-					.rpush(key + ':hacking', ip)
-					.hset(key + ':hacking:' + ip, 'state', 'stopped')
-					.exec(cb);
-			}
+		subscribeForHackingEvents(ip, firstHackingStage);
+		initHackingProgress(ip, firstHackingStage, function() {
+			client.lrem(key + ':scannedIps', 1, ip, function(err, removedCount) {
+				if (removedCount > 0) {
+					client.multi()
+						.rpush(key + ':hacking', ip)
+						.exec(cb);
+				}
+			});
 		});
 	};
 
 	var unsubscribeFromHackingEvents = function(ip) {
-		var stage = firstHackStage;
+		var stage = firstHackingStage;
 		while (stage != null) {
 			emitter.removeAllListeners('progress:hacking:' + ip + ':' + stage);
-			stage = nextHackStage(stage);
+			stage = nextHackingStage(stage);
 		}
-	};
-
-	s.getHackingStage = function(ip, cb) {
-		// TODO
 	};
 
 	s.removeFromHacking = function(ip, cb) {
@@ -526,11 +555,15 @@ var newUserState = function(uid) {
 			progKey + ':checkpoint:progress',
 			progKey + ':checkpoint:timestamp',
 			progKey + ':fullTime',
+			progKey + ':eta',
 			function(err, results) {
 				var checkpointProgress = Number(results[0]);
 				var checkpointTimestamp = Number(results[1]);
 				var fullTime = Number(results[2]);
-				var progress = (timestamp - checkpointTimestamp) / fullTime * 100 + checkpointProgress;
+				var eta = Number(results[3]);
+				var progress = eta ?
+					(timestamp - checkpointTimestamp) / fullTime * 100 + checkpointProgress :
+					checkpointProgress;
 				cb(null, limitProgress(progress));
 			});
 	};
@@ -574,7 +607,9 @@ var newUserState = function(uid) {
 				setProgressAt(progKey, progress, now, function() {
 					setStateToStopped(progKey, function() {
 						emitter.emit(progKey, {progress: progress, state: 'stopped'});
-						cb(null, progress);
+						if (cb != null) {
+							cb(null, progress);
+						}
 					});
 				});
 			});
@@ -595,6 +630,33 @@ var newUserState = function(uid) {
 				}
 				cb(null, result);
 			});
+		});
+	};
+
+	var getHackingStage;
+	getHackingStage = function(ip, stage, cb) {
+		if (stage != null) {
+			getProgressState('progress:hacking:' + ip + ':' + stage, function(err, result) {
+				if (result.state == 'stopped' && result.progress >= 100) {
+					getHackingStage(ip, nextHackingStage(stage), cb);
+				} else if (cb != null) {
+					cb(null, stage);
+				}
+			});
+		} else if (cb != null) {
+			cb(null, null);
+		}
+	};
+
+	s.startHacking = function(ip, cb) {
+		getHackingStage(ip, firstHackingStage, function(err, stage) {
+			s.startProgress('progress:hacking:' + ip + ':' + stage);
+		});
+	};
+
+	s.stopHacking = function(ip, cb) {
+		getHackingStage(ip, firstHackingStage, function(err, stage) {
+			s.stopProgress('progress:hacking:' + ip + ':' + stage);
 		});
 	};
 
@@ -704,20 +766,14 @@ sessStore.on('connect', function() {
 					s.startProgress('progress:scan');
 				});
 				sock().on('startHacking', function(ip) {
-					s.getHackingStage(ip, function(err, stage) {
-						s.startProgress('progress:hacking:' + ip + ':' + stage);
-					});
+					s.startHacking(ip);
 				});
 				sock().on('stopHacking', function(ip) {
-					s.getHackingStage(ip, function(err, stage) {
-						s.stopProgress('progress:hacking:' + ip + ':' + stage);
-					});
+					s.stopHacking(ip);
 				});
 				var hackingListener = function(evt) {
 					sock().emit('hacking', evt);
-					if (evt.progress >= 100 && evt.nextStage != null) {
-						s.startProgress('progress:hacking:' + evt.ip + ':' + evt.nextStage);
-					}
+console.log('hacking: %j', evt);
 				};
 				s.on('hacking', hackingListener);
 				sock().on('moveToHacking', function(ip) {

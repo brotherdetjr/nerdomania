@@ -77,6 +77,14 @@ mainModule.controller('MainCtrl', ['$scope', '$interval', 'socket', function($sc
 		}
 	};
 
+	$scope.hackingStartStopButtonClick = function(hack) {
+		if (hack.state == 'stopped') {
+			socket.emit('startHacking', hack.ip);
+		} else if (hack.state == 'running') {
+			socket.emit('stopHacking', hack.ip);
+		}
+	};
+
 	$scope.outsideRemoveFromHackingButtonClick = function() {
 		$scope.candidateToRemove = null;
 	};
@@ -162,22 +170,18 @@ mainModule.controller('MainCtrl', ['$scope', '$interval', 'socket', function($sc
 			state: 'stopped',
 			firewall: {
 				progress: 0,
-				eta: 0,
 				level: v.firewallLevel
 			},
 			antivirus: {
 				progress: 0,
-				eta: 0,
 				level: v.antivirusLevel
 			},
 			password: {
 				progress: 0,
-				eta: 0,
 				level: v.passwordLevel
 			},
 			transfer: {
-				progress: 0,
-				eta: 0
+				progress: 0
 			}
 		});
 		$scope.scanResults = $scope.scanResults.filter(function(e) { return e.ip != ip; });

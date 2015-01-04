@@ -36,7 +36,7 @@
 							</td>
 							<td>
 								<div class="btn-group btn-group-xs btn-group-unbreakable">
-									<button type="button" class="btn btn-default"><span class="glyphicon" ng-class="hack.state == 'running' && 'glyphicon-pause' || hack.state == 'stopped' && 'glyphicon-play'"></span></button>
+									<button type="button" class="btn btn-default" ng-click="hackingStartStopButtonClick(hack)"><span class="glyphicon" ng-class="hack.state == 'running' && 'glyphicon-pause' || hack.state == 'stopped' && 'glyphicon-play'"></span></button>
 									<button type="button" class="btn btn-default" ng-click="removeFromHackingButtonClick(hack.ip)" click-outside="outsideRemoveFromHackingButtonClick()">
 										<span class="glyphicon glyphicon-remove" ng-show="hack.ip != candidateToRemove"></span>
 										<span ng-show="hack.ip == candidateToRemove">R U sure?</span>
