@@ -331,7 +331,7 @@ var newUserState = function(uid) {
 	var stageFullTime = function(ip, stage, cb) {
 		var result;
 		if (stage == firstHackingStage) {
-			result = 1000;
+			result = 3000;
 		} else if (stage == 'antivirus') {
             result = 2000;
 		} else if (stage == 'password') {
@@ -604,9 +604,8 @@ var newUserState = function(uid) {
 		var now = Date.now();
 		unscheduleByProgKey(progKey, function() {
 			getProgressAt(progKey, now, function(err, progress) {
-				setProgressAt(progKey, progress, now, function() {
-					setStateToStopped(progKey, function() {
-						emitter.emit(progKey, {progress: progress, state: 'stopped'});
+				setStateToStopped(progKey, function() {
+					setProgressAt(progKey, progress, now, function() {
 						if (cb != null) {
 							cb(null, progress);
 						}
@@ -773,7 +772,6 @@ sessStore.on('connect', function() {
 				});
 				var hackingListener = function(evt) {
 					sock().emit('hacking', evt);
-console.log('hacking: %j', evt);
 				};
 				s.on('hacking', hackingListener);
 				sock().on('moveToHacking', function(ip) {
