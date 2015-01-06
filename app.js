@@ -11,7 +11,6 @@
 // TODO descibe solution design
 // TODO see TODOs in the code...
 // TODO implement serialization of transactions via locking
-// TODO to fix: scanned ips disappear after page reload
 
 var EventEmitter = require('events').EventEmitter;
 var express = require('express');
@@ -416,45 +415,46 @@ var newUserState = function(uid) {
 		client.lrange(key + ':hacking', 0, -1, function(err, ips) {
 			var multi = client.multi();
 			ips.forEach(function(ip) {
-				multi.hmget(key + ':hacking:' + ip,
-					'state',
-					'firewall:progress',
-					'firewall:eta',
-					'antivirus:progress',
-					'antivirus:eta',
-					'password:progress',
-					'password:eta',
-					'transfer:progress',
-					'transfer:eta'
-				);
+				var args = [key];
+				var stage = firstHackingStage;
+				while (stage != null) {
+					args.push('progress:hacking:' + ip + ':' + stage + ':checkpoint:progress');
+					args.push('progress:hacking:' + ip + ':' + stage + ':checkpoint:timestamp');
+					args.push('progress:hacking:' + ip + ':' + stage + ':eta');
+					args.push('progress:hacking:' + ip + ':' + stage + ':fullTime');
+					stage = nextHackingStage(stage);
+				}
+				multi.hmget.apply(multi, args);
 			});
 			var n = 0;
 			multi.exec(function(err, hackingList) {
 				victimManager.getVictims(ips, function(err, victims) {
 					cb(null, hackingList.map(function(e) {
-						return {
-							ip: ips[n],
-							state: e[0],
-							firewall: {
-								progress: e[1],
-								eta: e[2],
-								level: victims[n].firewallLevel
-							},
-							antivirus: {
-								progress: e[3],
-								eta: e[4],
-								level: victims[n].antivirusLevel
-							},
-							password: {
-								progress: e[5],
-								eta: e[6],
-								level: victims[n++].passwordLevel
-							},
-							transfer: {
-								progress: e[7],
-								eta: e[8]
+						var now = Date.now();
+						var result = {ip: ips[n], state: 'stopped'};
+						var stage = firstHackingStage;
+						var m = 0;
+						while (stage != null) {
+							var checkpointProgress = Number(e[m * 4]);
+							var checkpointTimestamp = Number(e[m * 4 + 1]);
+							var eta = Number(e[m * 4 + 2]);
+							var fullTime = Number(e[m * 4 + 3]);
+							var progress = eta ?
+								(now - checkpointTimestamp) / fullTime * 100 + checkpointProgress :
+								checkpointProgress;
+							result[stage] = {
+								progress: progress,
+								eta: eta ? Math.round((100 - progress) / 100 * fullTime) : 0,
+								level: victims[n][stage + 'Level']
+							};
+							if (eta) {
+								result.state = 'running';
 							}
-						};
+							stage = nextHackingStage(stage);
+							m++;
+						}
+						n++;
+						return result;
 					}));
 				})
 			});
@@ -647,16 +647,20 @@ var newUserState = function(uid) {
 		}
 	};
 
-	s.startHacking = function(ip, cb) {
+	var startStopHacking = function(ip, startStopFunc, cb) {
 		getHackingStage(ip, firstHackingStage, function(err, stage) {
-			s.startProgress('progress:hacking:' + ip + ':' + stage);
+			if (stage != null) {
+				startStopFunc.call(s, 'progress:hacking:' + ip + ':' + stage);
+			}
 		});
 	};
 
+	s.startHacking = function(ip, cb) {
+		startStopHacking(ip, s.startProgress, cb);
+	};
+
 	s.stopHacking = function(ip, cb) {
-		getHackingStage(ip, firstHackingStage, function(err, stage) {
-			s.stopProgress('progress:hacking:' + ip + ':' + stage);
-		});
+		startStopHacking(ip, s.stopProgress, cb);
 	};
 
 	s.getMainState = function(cb) {

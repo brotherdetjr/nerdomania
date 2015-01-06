@@ -129,25 +129,35 @@ mainModule.controller('MainCtrl', ['$scope', '$interval', 'socket', function($sc
 		}
 	};
 
+	// TODO refactoring
 	var setHackingProgress = function(value) {
 		var victim = $.grep($scope.hacking, function(e) { return e.ip == value.ip; })[0];
-		victim.state = value.state;
 		var stage = victim[value.stage];
 		stage.progress = value.progress;
+		stage.state = value.state;
 		if (value.state == 'running') {
 			var delta = (100 - stage.progress) / fps / value.eta * 1000;
-			victim.promise = $interval(function() {
+			stage.promise = $interval(function() {
 				if (stage.progress >= 100) {
 					victim.state = 'stopped';
-					$interval.cancel(victim.promise);
-					victim.promise = null;
+					$interval.cancel(stage.promise);
+					stage.promise = null;
 				} else {
 					stage.progress += delta;
 				}
 			}, 1000 / fps);
-		} else if (victim.promise != null) {
-			$interval.cancel(victim.promise);
-			victim.promise = null;
+		} else if (stage.promise != null) {
+			$interval.cancel(stage.promise);
+			stage.promise = null;
+		}
+		victim.state = 'stopped';
+		for (var propName in victim) {
+			if (propName != 'ip' && propName != 'state') {
+				var curStage = victim[propName];
+				if (curStage.state == 'running') {
+					victim.state = 'running';
+				}
+			}
 		}
 	};
 
@@ -197,6 +207,22 @@ mainModule.controller('MainCtrl', ['$scope', '$interval', 'socket', function($sc
 		$scope.account = state.account;
 		$scope.scanResults = state.scanResults;
 		$scope.hacking = state.hacking;
+		// TODO make it not so awful
+		for (var i = 0; i < $scope.hacking.length; i++) {
+			var victim = $scope.hacking[i];
+			for (var propName in $scope.hacking[i]) {
+				if (propName != 'ip' && propName != 'state') {
+					var stage = victim[propName];
+					setHackingProgress({
+						ip: victim.ip,
+						state: stage.eta != 0 ? 'running' : 'stopped',
+						stage: propName,
+						progress: stage.progress,
+						eta: stage.eta
+					});
+				}
+			}
+		}
 		setScanProgress(state.scanProgress);
 	});
 }]);
