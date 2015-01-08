@@ -1,7 +1,7 @@
 // TODO proper logging
 // TODO restore persisted states
 // TODO housekeeping. Also need to rework state methods -
-//      make them pushing to client a notification that user
+//      make them pushing to redisDao a notification that user
 //      with specified uid has been housekept.
 // TODO simple sign up.
 // TODO break into separate files/modules,
@@ -11,6 +11,17 @@
 // TODO descibe solution design
 // TODO see TODOs in the code...
 // TODO implement serialization of transactions via locking
+var pongular = require('pongular').pongular;
+
+pongular
+.module('app', ['dao.redis', 'service.victim'])
+.factory('redisClient', function() {
+	return require('redis').createClient();
+})
+.uses('*.js');
+
+var injector = pongular.injector(['app']);
+injector.invoke(['victimService', 'redisDao', function(victimService, redisDao) {
 
 var EventEmitter = require('events').EventEmitter;
 var express = require('express');
@@ -21,7 +32,6 @@ var http = require('http').Server(app);
 var io = require('socket.io')(http);
 var sessionstore = require('sessionstore');
 var sessStore = sessionstore.createSessionStore();
-var redis = require('redis');
 
 var httpPort = 80;
 var initialAccount = 75;
@@ -52,224 +62,6 @@ var unschedule = function(id) {
 	delete timeouts[id];
 };
 
-var crashing = function(callback, converter, nullable) {
-	if (callback == null) {
-		callback = function() {};
-	}
-	return function(err, reply) {
-		if (err || !nullable && reply == null) {
-			console.log(new Error(err).stack);
-			process.exit(1);
-		}
-		callback(null, converter ? converter(reply) : reply);
-	};
-};
-
-var crashingNum = function(callback) {
-	return crashing(callback, function(reply) { return Number(reply); });
-};
-
-var crashingBool = function(callback) {
-	return crashing(callback, function(reply) { return reply == 1; });
-};
-
-var crashingList = function(callback) {
-	return crashing(callback, function(reply) { return reply == null ? [] : reply; }, true);
-};
-
-var redisClient = redis.createClient();
-redisClient.on('error', function (err) {
-	console.log(new Error(err).stack);
-	process.exit(1);
-});
-
-var PersistenceClient = function(client) {
-	var transformCb = function(a) {
-		var cb = a[a.length - 1];
-		if (cb instanceof Function) {
-			var args = [].slice.call(a, 0, a.length - 1);
-			return args.concat(crashing(cb));
-		} else {
-			return a;
-		}
-	};
-
-	this.hgetNum = function(key, prop, callback) {
-		client.hget(key, prop, crashingNum(callback));
-	};
-	this.hincrbyfloat = function(key, prop, delta, callback) {
-		client.hincrbyfloat(key, prop, delta, crashingNum(callback));
-	};
-	this.lrange = function(key, start, stop, callback) {
-		client.lrange(key, start, stop, crashingList(callback));
-	};
-	this.del = function(keys, callback) {
-		client.del(keys, crashingNum(callback));
-	};
-	this.lrem = function(key, count, sample, callback) {
-		client.lrem(key, count, sample, crashingNum(callback));
-	};
-	this.hset = function(key, field, value, callback) {
-		client.hset(keys, field, value, crashingBool(callback));
-	};
-	this.hmset = function() {
-		client.hmset.apply(client, transformCb(arguments));
-	};
-	this.hmget = function() {
-		client.hmget.apply(client, transformCb(arguments));
-	};
-	this.exists = function(key, callback) {
-		client.exists(key, crashingBool(callback));
-	};
-	this.rpush = function() {
-		client.rpush.apply(client, transformCb(arguments));
-	};
-
-	this.multi = function() {
-		var redisMulti = client.multi();
-		var multi;
-		multi = {
-			rpush: function() {
-				redisMulti.rpush.apply(redisMulti, arguments); return multi;
-			},
-			hmset: function() {
-				redisMulti.hmset.apply(redisMulti, arguments); return multi;
-			},
-			hmget: function() {
-				redisMulti.hmget.apply(redisMulti, arguments); return multi;
-			},
-			hset: function() {
-				redisMulti.hset.apply(redisMulti, arguments); return multi;
-			},
-			hget: function() {
-				redisMulti.hget.apply(redisMulti, arguments); return multi;
-			},
-			hincrbyfloat: function() {
-				redisMulti.hincrbyfloat.apply(redisMulti, arguments); return multi;
-			},
-			lrem: function() {
-				redisMulti.lrem.apply(redisMulti, arguments); return multi;
-			},
-			del: function() {
-				redisMulti.del.apply(redisMulti, arguments); return multi;
-			},
-			exec: function(callback) {
-				redisMulti.exec(crashing(callback, function(results) { return results; }));
-			}
-		};
-		return multi;
-	};
-
-};
-
-var client = new PersistenceClient(redisClient);
-
-var VictimManager = function(client) {
-
-	var normalRandom = function() {
-		var x, y, s;
-		do {
-			x = Math.random() * 2 - 1;
-			y = Math.random() * 2 - 1;
-			s = x * x + y * y;
-		} while (s == 0 || s > 1);
-		return x * Math.sqrt(-2 * Math.log(s) / s);
-	};
-
-	var round2 = function(num) {
-		return Math.round(num * 100) / 100;
-	};
-
-	var randomLevel = function(baseLevel) {
-		var result = baseLevel + Math.round(normalRandom());
-		result = Math.max(result, 1);
-		return result;
-	};
-
-	var randomIp = function() {
-		var getOctet = function() {
-			return Math.round(Math.random() * 255);
-		};
-		return getOctet() + '.' + getOctet() + '.' + getOctet() + '.' + getOctet();
-	};
-
-	var newVictim = function(ip, baseLevel) {
-		return {
-			ip: ip,
-			firewallLevel: randomLevel(baseLevel),
-			antivirusLevel: randomLevel(baseLevel),
-			passwordLevel: randomLevel(baseLevel),
-			account: Math.abs(round2(normalRandom() * 250 + 500))
-		};
-	};
-
-	var save = function(victim, callback) {
-		client.hmset('victims:' + victim.ip,
-			'firewallLevel', victim.firewallLevel,
-			'antivirusLevel', victim.antivirusLevel,
-			'passwordLevel', victim.passwordLevel,
-			'account', victim.account,
-			callback);
-	};
-
-	var generateSingle;
-	generateSingle = function(level, cb) {
-		var ip = randomIp();
-		client.exists(ip, function(err, value) {
-			if (1 == value) {
-				generateSingle(level, cb);
-			} else {
-				cb(null, newVictim(ip, level));
-			}
-		});
-	};
-
-	this.generate = function(qty, level, cb) {
-		var results = [];
-		for (var i = 0; i < qty; i++) {
-			generateSingle(level, function(err, victim) {
-				save(victim, function() {
-					results.push(victim);
-					if (results.length == qty) {
-						cb(null, results);
-					}
-				});
-			});
-		}
-	};
-
-	this.remove = function(ips, callback) {
-		if (!(ips instanceof Array)) {
-			ips = [ips];
-		}
-		if (ips.length > 0) {
-			client.del(ips.map(function(ip) { return 'victims' + ':' + ip; }), callback);
-		} else {
-			callback(null, 0);
-		}
-	};
-
-	this.getVictims = function(ips, cb) {
-		var multi = client.multi();
-		ips.forEach(function(ip) {
-			multi.hmget('victims:' + ip, 'firewallLevel', 'antivirusLevel', 'passwordLevel');
-		});
-		var n = 0;
-		multi.exec(function(err, results) {
-			cb(null, results.map(function(e) {
-				return {
-					ip: ips[n++],
-					firewallLevel: e[0],
-					antivirusLevel: e[1],
-					passwordLevel: e[2]
-				};
-			}));
-		});
-	};
-
-};
-
-var victimManager = new VictimManager(client);
 
 var userStates = {};
 
@@ -280,26 +72,26 @@ var newUserState = function(uid) {
 	var s = {};
 
 	var getLastItJobTimestamp = function(callback) {
-		client.hgetNum(key, 'lastItJobTimestamp', callback);
+		redisDao.hgetNum(key, 'lastItJobTimestamp', callback);
 	};
 
 	var clearScanResults = function(callback) {
 		var scannedIpsKey = key + ':scannedIps';
-		client.lrange(scannedIpsKey, 0, -1, function(err, ips) {
-			victimManager.remove(ips, function() {
-				client.del(scannedIpsKey, callback);
+		redisDao.lrange(scannedIpsKey, 0, -1, function(err, ips) {
+			victimService.remove(ips, function() {
+				redisDao.del(scannedIpsKey, callback);
 			});
 		});
 	};
 
 	var saveScannedIps = function(ips, callback) {
-		// TODO refactor client dao to make such calls as client.rpush(client, key + ':scannedIps', ips, callback);
-		client.rpush.apply(client, [key + ':scannedIps'].concat(ips, callback));
+		// TODO refactor dao to make such calls as redisDao.rpush(key + ':scannedIps', ips, callback);
+		redisDao.rpush.apply(redisDao, [key + ':scannedIps'].concat(ips, callback));
 	};
 
 	s.scan = function(callback) {
 		clearScanResults(function() {
-			victimManager.generate(scanResultsCount, 1, function(err, victims) {
+			victimService.generate(scanResultsCount, 1, function(err, victims) {
 				saveScannedIps(victims.map(function(v) { return v.ip; }), function() {
 					callback(null, victims);
 				});
@@ -308,8 +100,8 @@ var newUserState = function(uid) {
 	};
 
 	var getScanResults = function(cb) {
-		client.lrange(key + ':scannedIps', 0, -1, function(err, ips) {
-			victimManager.getVictims(ips, cb);
+		redisDao.lrange(key + ':scannedIps', 0, -1, function(err, ips) {
+			victimService.getVictims(ips, cb);
 		});
 	};
 
@@ -379,9 +171,9 @@ var newUserState = function(uid) {
 	s.moveToHacking = function(ip, cb) {
 		subscribeForHackingEvents(ip, firstHackingStage);
 		initHackingProgress(ip, firstHackingStage, function() {
-			client.lrem(key + ':scannedIps', 1, ip, function(err, removedCount) {
+			redisDao.lrem(key + ':scannedIps', 1, ip, function(err, removedCount) {
 				if (removedCount > 0) {
-					client.multi()
+					redisDao.multi()
 						.rpush(key + ':hacking', ip)
 						.exec(cb);
 				}
@@ -399,12 +191,12 @@ var newUserState = function(uid) {
 
 	s.removeFromHacking = function(ip, cb) {
 		unsubscribeFromHackingEvents(ip);
-		client.multi()
+		redisDao.multi()
 			.lrem(key + ':hacking', 1, ip)
 			.del(key + ':hacking:' + ip)
 			.exec(function(err, result) {
 				if (result[0] > 0) {
-					victimManager.remove(ip, function() {
+					victimService.remove(ip, function() {
 						cb(null, true);
 					});
 				}
@@ -412,8 +204,8 @@ var newUserState = function(uid) {
 	};
 
 	var getHacking = function(cb) {
-		client.lrange(key + ':hacking', 0, -1, function(err, ips) {
-			var multi = client.multi();
+		redisDao.lrange(key + ':hacking', 0, -1, function(err, ips) {
+			var multi = redisDao.multi();
 			ips.forEach(function(ip) {
 				var args = [key];
 				var stage = firstHackingStage;
@@ -428,7 +220,7 @@ var newUserState = function(uid) {
 			});
 			var n = 0;
 			multi.exec(function(err, hackingList) {
-				victimManager.getVictims(ips, function(err, victims) {
+				victimService.getVictims(ips, function(err, victims) {
 					cb(null, hackingList.map(function(e) {
 						var now = Date.now();
 						var result = {ip: ips[n], state: 'stopped'};
@@ -478,7 +270,7 @@ var newUserState = function(uid) {
 				if (amount > maxItJobsPerRequest) {
 					amount = maxItJobsPerRequest;
 				}
-				client.multi()
+				redisDao.multi()
 					.hincrbyfloat(key, 'account', amount * itJobPrice)
 					.hset(key, 'lastItJobTimestamp', timestamp)
 					.exec(function(err, replies) { emitter.emit('account', Number(replies[0])); });
@@ -496,7 +288,7 @@ var newUserState = function(uid) {
 	};
 
 	var setStateToStopped = function(progKey, cb) {
-		client.hmset(key,
+		redisDao.hmset(key,
 			progKey + ':id', 0,
 			progKey + ':eta', 0,
 			cb
@@ -512,13 +304,13 @@ var newUserState = function(uid) {
 	};
 
 	s.setFullTime = function(progKey, fullTime, cb) {
-		client.hset(key, progKey + ':fullTime', fullTime, cb);
+		redisDao.hset(key, progKey + ':fullTime', fullTime, cb);
 	};
 
 	var getCheckpointProgressAndFullTime = function(progKey, cb) {
-		client.hgetNum(key, progKey + ':id', function(err, progId) {
+		redisDao.hgetNum(key, progKey + ':id', function(err, progId) {
 			if (!progId) {
-				client.hmget(key,
+				redisDao.hmget(key,
 					progKey + ':checkpoint:progress',
 					progKey + ':fullTime',
 					function(err, results) {
@@ -533,7 +325,7 @@ var newUserState = function(uid) {
 	};
 
 	var startProgressAt = function(progKey, progress, eta) {
-		client.hmset(key,
+		redisDao.hmset(key,
 			progKey + ':id', scheduleFinish(progKey, eta),
 			progKey + ':eta', eta,
 			progKey + ':checkpoint:timestamp', Date.now(),
@@ -551,7 +343,7 @@ var newUserState = function(uid) {
 	};
 
 	var getProgressAt = function(progKey, timestamp, cb) {
-		client.hmget(key,
+		redisDao.hmget(key,
 			progKey + ':checkpoint:progress',
 			progKey + ':checkpoint:timestamp',
 			progKey + ':fullTime',
@@ -569,7 +361,7 @@ var newUserState = function(uid) {
 	};
 
 	var setProgressAt = function(progKey, progress, timestamp, cb) {
-		client.multi()
+		redisDao.multi()
 			.hmset(key,
 				progKey + ':checkpoint:timestamp', timestamp,
 				progKey + ':checkpoint:progress', progress)
@@ -588,7 +380,7 @@ var newUserState = function(uid) {
 	};
 
 	var unscheduleByProgKey = function(progKey, cb) {
-		client.hgetNum(key, progKey + ':id', function(err, progId) {
+		redisDao.hgetNum(key, progKey + ':id', function(err, progId) {
 			if (progId) {
 				unschedule(progId);
 				cb(null, progId);
@@ -617,7 +409,7 @@ var newUserState = function(uid) {
 
 	var getProgressState = function(progKey, cb) {
 		getProgressAt(progKey, Date.now(), function(err, progress) {
-			client.hmget(key, progKey + ':id', progKey + ':fullTime', function(err, results) {
+			redisDao.hmget(key, progKey + ':id', progKey + ':fullTime', function(err, results) {
 				var progId = Number(results[0]);
 				var fullTime = Number(results[1]);
 				var result = {
@@ -664,7 +456,7 @@ var newUserState = function(uid) {
 	};
 
 	s.getMainState = function(cb) {
-		client.hgetNum(key, 'account', function(err, account) {
+		redisDao.hgetNum(key, 'account', function(err, account) {
 			getProgressState('progress:scan', function(err, scanProgress) {
 				getScanResults(function(err, scanResults) {
 					getHacking(function(err, hacking) {
@@ -685,7 +477,7 @@ var newUserState = function(uid) {
 	};
 
 	s.initProgress = function(progKey, fullTime, cb) {
-		client.hmset(key,
+		redisDao.hmset(key,
 			progKey + ':id', 0,
 			progKey + ':eta', 0,
 			progKey + ':fullTime', fullTime,
@@ -696,7 +488,7 @@ var newUserState = function(uid) {
 	};
 
 	s.init = function() {
-		client.hmset(key,
+		redisDao.hmset(key,
 			'account', initialAccount,
 			'lastItJobTimestamp', 0,
 			'frozen', 0,
@@ -740,7 +532,7 @@ sessStore.on('connect', function() {
 	var userSockets = {};
 
 	io.on('connection', function(socket) {
-		
+
 		cookieParser(secret, {})(socket.handshake, {}, function (parseErr) {
 			var uid = socket.handshake.signedCookies['connect.sid'];
 			var s = userStates[uid];
@@ -807,3 +599,5 @@ sessStore.on('connect', function() {
 		console.log('listening on *:%d', httpPort);
 	});
 });
+
+}]);

@@ -8,6 +8,7 @@
     "events": "^1.0.2",
     "express": "~4.10.2",
     "express-session": "^1.9.1",
+    "pongular": "0.0.5",
     "redis": "^0.12.1",
     "sessionstore": "^1.0.5",
     "socket.io": "^1.2.0"
