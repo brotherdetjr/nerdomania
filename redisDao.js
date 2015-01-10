@@ -1,7 +1,7 @@
 var pongular = require('pongular').pongular;
 
 module.exports = pongular
-.module('dao.redis', ['app'])
+.module('app')
 .service('redisDao', ['redisClient', function(redisClient) {
 	var crashing = function(callback, converter, nullable) {
 		if (callback == null) {

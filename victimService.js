@@ -1,7 +1,7 @@
 var pongular = require('pongular').pongular;
 
 module.exports = pongular
-.module('service.victim', ['dao.redis'])
+.module('app')
 .service('victimService', ['redisDao', function(redisDao) {
 	var normalRandom = function() {
 		var x, y, s;
