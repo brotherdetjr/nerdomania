@@ -67,17 +67,18 @@ sessStore.on('connect', function() {
 			userSockets[uid] = socket;
 			var sock = function() { return userSockets[uid]; };
 			if (s != null) {
+				var scanProgress = s.progress('progress:scan');
 				var scanListener = function(value) {
 					sock().emit('scan', value);
 					if (value.progress >= 100) {
-						s.setProgress('progress:scan', 0, function() {
+						scanProgress.setValue(0, function() {
 							s.scan(function(err, results) {
 								sock().emit('scanResults', results);
 							});
 						});
 					}
 				};
-				s.on('progress:scan', scanListener);
+				scanProgress.on('update', scanListener);
 
 				var accountListener = function(value) {
 					sock().emit('account', value);
@@ -86,7 +87,7 @@ sessStore.on('connect', function() {
 
 				sock().on('itJobs', function(amount) { s.payForItJob(amount); });
 				sock().on('scan', function() {
-					s.startProgress('progress:scan');
+					scanProgress.start();
 				});
 				sock().on('startHacking', function(ip) {
 					s.startHacking(ip);
@@ -109,8 +110,8 @@ sessStore.on('connect', function() {
 					});
 				});
 				sock().on('disconnect', function() {
+//					scanProgress.removeListener('update', scanListener);
 					s.removeListener('account', accountListener)
-					.removeListener('progress:scan', scanListener)
 					.removeListener('hacking', hackingListener)
 					.destroy();
 					delete userSockets[uid];

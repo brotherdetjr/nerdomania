@@ -4,8 +4,8 @@ var EventEmitter = require('events').EventEmitter;
 module.exports = pongular
 .module('app')
 .factory('userStateFactory', [
-	'schedulingService', 'victimService', 'redisDao',
-	function(schedulingService, victimService, redisDao) {
+	'schedulingService', 'victimService', 'redisDao', 'progressStateFactory',
+	function(schedulingService, victimService, redisDao, progressStateFactory) {
 
 var initialAccount = 75;
 var minIntervalBetweenItJobs = 1000;
@@ -20,6 +20,10 @@ return function(uid) {
 	var emitter = new EventEmitter();
 
 	return Object.create({
+		progress: function(progKey) {
+			return progressStateFactory(key, progKey);
+		},
+
 		scan: function(callback) {
 			var self = this;
 			self.clearScanResults(function() {
